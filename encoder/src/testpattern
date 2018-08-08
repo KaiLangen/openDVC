@@ -1,0 +1,74 @@
+
+// TODO RC PATTERN
+#   if TESTPATTERN
+        patternFile = _files->addFile("pattern_rc", "pattern_rc.dat");
+        patternFile->openFile("w");
+        patternFh = patternFile->getFileHandle();
+
+        for (int j = 0; j < _frameHeight; j++)
+          for (int i = 0; i < _frameWidth; i+=4) {
+            for (int x = 0; x < 4; x++)
+              for (int idx = 1; idx <= 2; idx++) {
+                int pos = (i+x)+(j)*_frameWidth;
+                int value = (currFrame[pos] >> (8-idx*4)) & 0xf;
+                fprintf(patternFh,"%x",value);
+              }
+            fprintf(patternFh,"\n");
+          }
+
+        for (int j = 0; j < _frameHeight; j++)
+          for (int i = 0; i < _frameWidth; i+=4) {
+            for (int x = 0; x < 4; x++)
+              for (int idx = 1; idx <= 2; idx++) {
+                int pos = (i+x)+(j)*_frameWidth;
+                int value = (prevKeyFrame[pos] >> (8-idx*4)) & 0xf;
+                fprintf(patternFh,"%x",value);
+              }
+            fprintf(patternFh,"\n");
+          }
+
+        patternFile->closeFile();
+#   endif // TESTPATTERN
+
+// TODO SCALER PATTERN
+# if TESTPATTERN
+        patternFile = _files->addFile("pattern_scaler", "pattern_scaler.dat");
+        patternFile->openFile("w");
+        patternFh = patternFile->getFileHandle();
+
+        for (int j = 0; j < _frameHeight; j+=4)
+          for (int i = 0; i < _frameWidth; i+=4) {
+            for (int l = 0; l < 16; l++) {
+              int x = ScanOrder[l][0];
+              int y = ScanOrder[l][1];
+
+              for (int idx = 1; idx <= 2; idx++) {
+                int mask   = (0x1<<(QuantMatrix[_qp][y][x]-1))-1;
+                int iValue = quantDctFrame[(i+x)+(j+y)*_frameWidth] & mask;
+                int iSign  = ((quantDctFrame[(i+x)+(j+y)*_frameWidth]>>(QuantMatrix[_qp][y][x]-1)) & 0x1)? -1: 1;
+                int value  = ((iSign*iValue) >> (8-idx*4)) & 0xf;
+                fprintf(patternFh, "%x", value);
+              }
+              fprintf(patternFh, "\n");
+            }
+          }
+
+        patternFile->closeFile();
+# endif // TESTPATTERN
+
+// TODO SKIP PATTERN
+#   if TESTPATTERN
+        patternFile = _files->addFile("pattern_skip", "pattern_skip.dat");
+        patternFile->openFile("w");
+        patternFh = patternFile->getFileHandle();
+
+        for (int j = 0; j < _bitPlaneLength; j++) {
+          int value = _skipMask[j] & 0x1;
+
+          fprintf(patternFh, "%x", value);
+          fprintf(patternFh, "\n");
+        }
+
+        patternFile->closeFile();
+#   endif // TESTPATTERN
+
