@@ -27,6 +27,7 @@ SHELL      := /bin/sh
 CXX        := g++
 SED        := sed
 RM         := rm -f
+TAR        := /bin/tar
 MAKE       := make
 CD         := cd
 CP         := cp -f
@@ -40,8 +41,14 @@ ifneq "$(SUB_MAKE)" "yes"
 .DEFAULT_GOAL := default
 
 .PHONY: default
-default: encoder decoder
+default: encoder decoder bin
 	@echo ""
+
+.PHONY: bin
+bin:
+	@echo ""
+	@echo "Building directory bin"
+	@$(TAR) -xzvf bin/ldpca.tar.gz --directory bin
 
 .PHONY: common
 common:
@@ -79,6 +86,7 @@ clean:
 clean_all: clean
 	@$(RM) bin/pattern* bin/wz.bin bin/rec.yuv bin/wz.y
 	@$(RM) bin/jm/data.txt bin/jm/*.dat bin/jm/test.264
+	@$(RM) -r bin/ldpca/
 
 endif
 
