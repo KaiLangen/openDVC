@@ -20,3 +20,5 @@ bin/wz.yuv
 bin/jm/jm.log
 bin/jm/leakybucketparam.cfg
 bin/stats.dat
+bin/deDVC
+bin/enDVC

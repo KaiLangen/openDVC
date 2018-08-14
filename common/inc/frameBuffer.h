@@ -9,22 +9,23 @@ class FrameBuffer
 public:
   FrameBuffer(int width, int height, int gop = 0)
   {
-    _prevFrame        = new imgpel[width*height];
-    _currFrame        = new imgpel[width*height];
-    _nextFrame        = new imgpel[width*height];
-    _sideInfoFrame    = new imgpel[width*height];
+    int frameSize = (3*(width * height))>>1;
+    _prevFrame        = new imgpel[frameSize];
+    _currFrame        = new imgpel[frameSize];
+    _nextFrame        = new imgpel[frameSize];
+    _sideInfoFrame    = new imgpel[frameSize];
 
     if (gop != 0) {
       _recFrames      = new imgpel*[gop-1];
 
       for (int i = 0; i < gop-1; i++)
-        _recFrames[i] = new imgpel[width*height];
+        _recFrames[i] = new imgpel[frameSize];
     }
 
-    _dctFrame         = new int[width*height];
-    _quantDctFrame    = new int[width*height];
-    _decFrame         = new int[width*height];
-    _invQuantDecFrame = new int[width*height];
+    _dctFrame         = new int[frameSize];
+    _quantDctFrame    = new int[frameSize];
+    _decFrame         = new int[frameSize];
+    _invQuantDecFrame = new int[frameSize];
   };
 
   imgpel*  getPrevFrame()        { return _prevFrame; };

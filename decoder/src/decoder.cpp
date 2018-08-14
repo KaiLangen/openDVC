@@ -162,16 +162,17 @@ void Decoder::decodeWZframe()
 
   timeStart = clock();
 
+  int yuvFrameSize = (3*_frameSize)>>1;
   // Main loop
   // ---------------------------------------------------------------------------
   for (int keyFrameNo = 0; keyFrameNo < (_numFrames-1)/_gop; keyFrameNo++) {
     // Read previous key frame
     fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+    fread(_fb->getPrevFrame(), yuvFrameSize, 1, fKeyReadPtr);
 
     // Read next key frame
     fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
+    fread(_fb->getNextFrame(), yuvFrameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
       int frameStep = _gop / ((il+1)<<1);
@@ -342,11 +343,14 @@ void Decoder::decodeWZframe()
       // Output decoded frames of the whole GOP
       // ---------------------------------------------------------------------
       // First output the key frame
-      fwrite(_fb->getPrevFrame(), _frameSize, 1, fWritePtr);
+      fwrite(_fb->getPrevFrame(), yuvFrameSize, 1, fWritePtr);
 
       // Then output the rest WZ frames
-      for (int i = 0; i < _gop-1; i++)
-        fwrite(_fb->getRecFrames()[i], _frameSize, 1, fWritePtr);
+      for (int i = 0; i < _gop-1; i++) {
+        // Set Chroma components to zero
+        memset(_fb->getRecFrames()[i] + _frameSize, 0x80, _frameSize>>1);
+        fwrite(_fb->getRecFrames()[i], yuvFrameSize, 1, fWritePtr);
+      }
     }
   }
 
