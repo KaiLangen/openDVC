@@ -1,1 +1,22 @@
 bin/ldpca/
+common/dep/*
+common/obj/*
+encoder/dep/*
+encoder/obj/*
+decoder/dep/*
+decoder/obj/*
+
+# files from running the executables
+bin/jm/data.txt
+bin/jm/log.dat
+bin/jm/stats.dat
+bin/jm/test.264
+bin/pattern_cavlc.dat
+bin/pattern_dct.dat
+bin/pattern_rlc.dat
+bin/rec.yuv
+bin/wz.bin
+bin/wz.yuv
+bin/jm/jm.log
+bin/jm/leakybucketparam.cfg
+bin/stats.dat

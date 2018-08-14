@@ -28,7 +28,7 @@ Decoder::Decoder(char **argv)
   _files = FileManager::getManager();
 
   string wzFileName = argv[1];
-  string recFileName = wzFileName.substr(0, wzFileName.find(".bin")) + ".y";
+  string recFileName = wzFileName.substr(0, wzFileName.find(".bin")) + ".yuv";
 
   _files->addFile("wz",     argv[1])->openFile("rb");
   _files->addFile("key",    argv[2])->openFile("rb");

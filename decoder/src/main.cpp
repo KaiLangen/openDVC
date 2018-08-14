@@ -7,11 +7,15 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-  if (argc == 1) {
-    cerr << "[wz varBitstream file][key frame file][original video file]" << endl;
+  if (argc != 4) {
+    cerr << "Usage: ./enDVC ";
+    cerr << "[wz varBitstream file] ";
+    cerr << "[key frame file] ";
+    cerr << "[original video file]" << endl;
+    cerr << endl;
     return 1;
   }
-  else if (argc == 4) {
+  else {
     cout << endl;
     cout << "DVC2.0 - open source distributed video coding tool" << endl;
     cout << endl;
