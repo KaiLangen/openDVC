@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# watch video using vlc
+vidname=$1
+
+vlc --rawvid-fps 25 --rawvid-width 176 --rawvid-height 144 --rawvid-chroma I420 $vidname
+

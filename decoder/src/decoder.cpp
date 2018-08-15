@@ -348,7 +348,8 @@ void Decoder::decodeWZframe()
       // Then output the rest WZ frames
       for (int i = 0; i < _gop-1; i++) {
         // Set Chroma components to zero
-        memset(_fb->getRecFrames()[i] + _frameSize, 0x80, _frameSize>>1);
+        memcpy(_fb->getRecFrames()[i] + _frameSize,
+               _fb->getPrevFrame() + _frameSize, _frameSize>>1);
         fwrite(_fb->getRecFrames()[i], yuvFrameSize, 1, fWritePtr);
       }
     }
