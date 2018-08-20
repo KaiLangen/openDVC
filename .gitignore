@@ -22,3 +22,6 @@ bin/jm/leakybucketparam.cfg
 bin/stats.dat
 bin/deDVC
 bin/enDVC
+bin/colour
+bin/mv.csv
+bin/recoloured.yuv

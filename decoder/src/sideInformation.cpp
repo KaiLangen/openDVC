@@ -220,7 +220,10 @@ int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2,const int blocksize,cons
 /*
 * create side information of the current frame
 */
-void SideInformation::createSideInfo(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgCurrFrame)
+void SideInformation::createSideInfo(imgpel* imgPrevKey,
+                                     imgpel* imgNextKey,
+                                     imgpel* imgCurrFrame,
+                                     std::FILE* mvFilePtr)
 {
   int width  = _codec->getFrameWidth();
   int height = _codec->getFrameHeight();
@@ -234,11 +237,11 @@ void SideInformation::createSideInfo(imgpel* imgPrevKey, imgpel* imgNextKey, img
   imgpel* mc2_b = new imgpel[width*height];
 
 # if SI_REFINEMENT
-  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, 0);
-  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, 1);
+  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, 0, mvFilePtr);
+  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, 1, mvFilePtr);
 # else
-  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b);
-  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f);
+  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, mvFilePtr);
+  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, mvFilePtr);
 # endif
 
   for (int iy = 0; iy < height; iy++)
@@ -267,9 +270,9 @@ void SideInformation::createSideInfo(imgpel* imgPrevKey, imgpel* imgNextKey, img
 * main process of creating side information
 */
 # if SI_REFINEMENT
-void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, int iMode)
+void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, int iMode, std::FILE* mvFilePtr)
 # else
-void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward)
+void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, std::FILE* mvFilePtr)
 # endif
 {
   int width  = _codec->getFrameWidth();
@@ -301,6 +304,8 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
   for (int iter = 0; iter < 2; iter++)
     spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate, iRange, 40);
 
+  char motionVectorBuffer[100];
+  int n;
   //copy mv
   for (int y = 0; y < height; y += iRange)
     for (int x = 0; x < width; x += iRange) {
@@ -314,6 +319,7 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
           varCandidate_iter2[index2].iMvy = varCandidate[iIndex].iMvy;
           varCandidate_iter2[index2].iCx  = x+i;
           varCandidate_iter2[index2].iCy  = y+j;
+
         }
     }
 
@@ -325,6 +331,26 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
     spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate_iter2, iRange/2, 40);
 
   MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward, varCandidate_iter2, NULL, 40, iRange/2, 0);
+
+  // Write Motion Vectors to file
+  for (int y = 0; y < height; y += iRange)
+    for (int x = 0; x < width; x += iRange) {
+      int iIndex=(x/iRange)+(y/iRange)*(width/iRange);
+
+      for (int j = 0; j < iRange; j += iRange/2)
+        for (int i = 0; i < iRange; i += iRange/2) {
+          int index2=(x+i)/(iRange/2)+(y+j)/(iRange/2)*(width/(iRange/2));
+          n = sprintf(motionVectorBuffer, "%d, %d, %d, %d, ",
+                      varCandidate_iter2[index2].iMvx,
+                      varCandidate_iter2[index2].iMvy,
+                      varCandidate_iter2[index2].iCx,
+                      varCandidate_iter2[index2].iCy);
+
+          fwrite(motionVectorBuffer, n, 1, mvFilePtr);
+        }
+        fwrite("\n", 1, 1, mvFilePtr);
+    }
+  fwrite("\n", 1, 1, mvFilePtr);
 
   delete [] imgPrevLowPass;
   delete [] imgNextLowPass;

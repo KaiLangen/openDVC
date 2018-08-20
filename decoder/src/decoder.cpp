@@ -34,6 +34,7 @@ Decoder::Decoder(char **argv)
   _files->addFile("key",    argv[2])->openFile("rb");
   _files->addFile("origin", argv[3])->openFile("rb");
   _files->addFile("rec",    recFileName.c_str())->openFile("wb");
+  _files->addFile("mv",     "mv.csv")->openFile("w");
 
   _bs = new Bitstream(1024, _files->getFile("wz")->getFileHandle());
 
@@ -157,6 +158,7 @@ void Decoder::decodeWZframe()
   FILE* fReadPtr    = _files->getFile("origin")->getFileHandle();
   FILE* fWritePtr   = _files->getFile("rec")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
+  FILE* mvFilePtr = _files->getFile("mv")->getFileHandle();
 
   parseKeyStat("stats.dat", dKeyCodingRate, dKeyPSNR, _keyQp);
 
@@ -203,7 +205,7 @@ void Decoder::decodeWZframe()
         // ---------------------------------------------------------------------
         // STAGE 1 - Create side information
         // ---------------------------------------------------------------------
-        _si->createSideInfo(prevFrame, nextFrame, imgSI);
+        _si->createSideInfo(prevFrame, nextFrame, imgSI, mvFilePtr);
 
         // ---------------------------------------------------------------------
         // STAGE 2 -

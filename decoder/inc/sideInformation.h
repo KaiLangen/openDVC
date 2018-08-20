@@ -16,7 +16,8 @@ public:
   void getRefinedSideInfo(imgpel *imgPrevKey,imgpel *imgNextKey,imgpel *imgCurrFrame,imgpel *imgTmpRec,imgpel *imgRefined,int iMode);
 # endif
 
-  void createSideInfo(imgpel* imgPreKey,imgpel* imgNextKey,imgpel* imgCurrFrame);
+  void createSideInfo(imgpel* imgPreKey,imgpel* imgNextKey,
+                      imgpel* imgCurrFrame, std::FILE* mvFilePtr);
 
 # if RESIDUAL_CODING
   void getResidualFrame(imgpel* bRefFrame, imgpel* fRefFrame, imgpel* currFrame, int* residue, int* dirList);
@@ -39,10 +40,10 @@ private:
   void getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* skipMask);
 
 # if SI_REFINEMENT
-  void createSideInfoProcess(imgpel* imgPrevKey,imgpel* imgNextKey,imgpel* imgMCForward,imgpel* imgMCBackward,int iMode);
+  void createSideInfoProcess(imgpel* imgPrevKey,imgpel* imgNextKey,imgpel* imgMCForward,imgpel* imgMCBackward,int iMode, std::FILE* mvFilePtr);
   void getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* imgTmpRec,imgpel* imgSI,imgpel* imgRefined,mvinfo* varList,int iMode);
 # else
-  void createSideInfoProcess(imgpel* imgPrevKey,imgpel* imgNextKey,imgpel* imgMCForward,imgpel* imgMCBackward);
+  void createSideInfoProcess(imgpel* imgPrevKey,imgpel* imgNextKey,imgpel* imgMCForward,imgpel* imgMCBackward, std::FILE* mvFilePtr);
 # endif
 
   Codec*      _codec;
