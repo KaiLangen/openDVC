@@ -1,12 +1,15 @@
-bin/ldpca/
+# deopendencies and objects from build process
 common/dep/*
 common/obj/*
 encoder/dep/*
 encoder/obj/*
 decoder/dep/*
 decoder/obj/*
+colourizer/dep/*
+colourizer/obj/*
 
-# files from running the executables
+# bin files from build build process / run generated files
+bin/ldpca/
 bin/jm/data.txt
 bin/jm/log.dat
 bin/jm/stats.dat
@@ -16,7 +19,7 @@ bin/pattern_dct.dat
 bin/pattern_rlc.dat
 bin/rec.yuv
 bin/wz.bin
-bin/wz.yuv
+bin/wz.y
 bin/jm/jm.log
 bin/jm/leakybucketparam.cfg
 bin/stats.dat

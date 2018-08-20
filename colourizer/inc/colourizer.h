@@ -26,11 +26,12 @@ public:
 private:
   map<string, string>& readConfig(string filename);
   void initialize(map<string, string>& configMap);
+  void simpleRecolour();
 
 private:
   FileManager* _files;
   int _grayFrameSize;
-  int _colourFrameSize;
+  int _yuvFrameSize;
   int _method;
   int _gop;
   int _width;

@@ -23,7 +23,8 @@ COL_OBJS   := $(call find_objs,colourizer)
 
 # Flags
 CXXFLAGS   := -Wall -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-variable
-CXXFLAGS   += -O3 -std=c++11
+#CXXFLAGS   += -O3 
+CXXFLAGS   += -g -std=c++11
 
 # Utilities
 SHELL      := /bin/sh

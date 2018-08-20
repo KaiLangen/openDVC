@@ -9,7 +9,7 @@ class FrameBuffer
 public:
   FrameBuffer(int width, int height, int gop = 0)
   {
-    int frameSize = (3*(width * height))>>1;
+    int frameSize = width * height;
     _prevFrame        = new imgpel[frameSize];
     _currFrame        = new imgpel[frameSize];
     _nextFrame        = new imgpel[frameSize];
