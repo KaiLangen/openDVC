@@ -32,9 +32,6 @@ private:
 
   void spatialSmooth(imgpel* imgPrev,imgpel* imgNext,mvinfo* varCandidate,const int iBlockSize,const int iPadSize);
 
-  int calcSAD(imgpel* blk1, imgpel* blk2,int px,int py,int rx,int ry,const int blocksize,int width,int height);
-  int calcSAD(imgpel* blk1, imgpel* blk2,const int blocksize,const int iPadSize);
-  int calcSAD(imgpel* blk1, imgpel* blk2, int width1, int width2, int s1,int s2,int blocksize);
   void pad(imgpel *src,imgpel *dst, const int iPadSize);
 
   void getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* skipMask);

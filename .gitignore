@@ -28,3 +28,9 @@ bin/enDVC
 bin/colour
 bin/mv.csv
 bin/recoloured.yuv
+
+# extra test files "akiyo"
+bin/akiyo*
+bin/*search*.yuv
+bin/*same*.yuv
+bin/*simple*.yuv

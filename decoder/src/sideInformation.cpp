@@ -8,6 +8,7 @@
 
 #include "sideInformation.h"
 #include "corrModel.h"
+#include "ME.h"
 #include "codec.h"
 #include "decoder.h"
 
@@ -167,53 +168,6 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
   delete [] buffer;
 }
 
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2,int px,int py,int rx,int ry,const int blocksize,int width,int height){
-  int sad=0;
-  int cx,cy;
-  for(int y=0;y<blocksize;y++)
-    for(int x=0;x<blocksize;x++)
-    {
-      cx=px+x;
-      cy=py+y;
-      if(cx<=0)cx=0;
-      if(cx>width-1)cx=width-1;
-      if(cy<=0)cy=0;
-      if(cy>height-1)cy=height-1;
-
-      imgpel pel1=*(blk1+cx+cy*width);
-      imgpel pel2=*(blk2+(rx+x)+(ry+y)*width);
-      sad+=abs(pel1-pel2);
-    }
-  return sad;
-}
-
-int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2, int width1, int width2, int s1,int s2,int blocksize){
-  int sad=0;
-  for(int y=0;y<blocksize;y++)
-    for(int x=0;x<blocksize;x++)
-    {
-      imgpel pel1=*(blk1+s1*x+s1*y*width1);
-      imgpel pel2=*(blk2+s2*x+s2*y*width2);
-      sad+=abs(pel1-pel2);
-    }
-  return sad;
-}
-
-int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2,const int blocksize,const int iPadSize){
-  int iWidth;
-  iWidth  = _codec->getFrameWidth();
-  int sad=0;
-  for(int y=0;y<blocksize;y++)
-    for(int x=0;x<blocksize;x++)
-    {
-      imgpel pel1=*(blk1+x+y*(iWidth+2*iPadSize));
-      imgpel pel2=*(blk2+x+y*(iWidth+2*iPadSize));
-      sad+=abs(pel1-pel2);
-    }
-  return sad;
-}
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
@@ -333,23 +287,18 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
   MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward, varCandidate_iter2, NULL, 40, iRange/2, 0);
 
   // Write Motion Vectors to file
-  for (int y = 0; y < height; y += iRange)
-    for (int x = 0; x < width; x += iRange) {
-      int iIndex=(x/iRange)+(y/iRange)*(width/iRange);
+  for (int y = 0; y < height; y += iRange/2) {
+    for (int x = 0; x < width; x += iRange/2) {
+      int iIndex=(2*x/iRange)+(2*y/iRange)*(2*width/iRange);
+      n = sprintf(motionVectorBuffer, "%d, %d, %d, %d\n",
+                  varCandidate_iter2[iIndex].iCx,
+                  varCandidate_iter2[iIndex].iCy,
+                  varCandidate_iter2[iIndex].iMvx,
+                  varCandidate_iter2[iIndex].iMvy);
 
-      for (int j = 0; j < iRange; j += iRange/2)
-        for (int i = 0; i < iRange; i += iRange/2) {
-          int index2=(x+i)/(iRange/2)+(y+j)/(iRange/2)*(width/(iRange/2));
-          n = sprintf(motionVectorBuffer, "%d, %d, %d, %d, ",
-                      varCandidate_iter2[index2].iMvx,
-                      varCandidate_iter2[index2].iMvy,
-                      varCandidate_iter2[index2].iCx,
-                      varCandidate_iter2[index2].iCy);
-
-          fwrite(motionVectorBuffer, n, 1, mvFilePtr);
-        }
-        fwrite("\n", 1, 1, mvFilePtr);
+      fwrite(motionVectorBuffer, n, 1, mvFilePtr);
     }
+  }
   fwrite("\n", 1, 1, mvFilePtr);
 
   delete [] imgPrevLowPass;

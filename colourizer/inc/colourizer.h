@@ -2,34 +2,39 @@
 #define COULOURIZER_INC_COLOURIZER
 
 #include <map>
+#include <sstream>
+#include <fstream>
 #include <iostream>
+#include <cstring>
+#include <cstdlib>
 
-#include "config.h"
 #include "codec.h"
+#include "fileManager.h"
 
 using namespace std;
 
-
 class FileManager;
+class SideInformation;
+enum Method {SIMPLE=1, MVSEARCH=2, MVSAME=3};
 
+// Base Class
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 class Colourizer
 {
 public:
-  enum Method {SIMPLE, MVSEARCH, ML};
-  Colourizer(char** argv);
-  ~Colourizer() { /* TODO Remember to free memory space */ };
+  Colourizer(map<string, string> configMap);
+  virtual ~Colourizer() {};
 
   void colourize();
+  virtual void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+  int getWidth() {return _width;}
+  int getHeight() {return _height;}
+  void MC(imgpel* imgPrevUV, imgpel* imgCurrUV);
 
-private:
-  map<string, string>& readConfig(string filename);
-  void initialize(map<string, string>& configMap);
-  void simpleRecolour();
-
-private:
+protected:
   FileManager* _files;
+  mvinfo* _mvs;
   int _grayFrameSize;
   int _yuvFrameSize;
   int _method;
@@ -37,6 +42,45 @@ private:
   int _width;
   int _height;
   int _nframes;
+  int _iRange;
+  int _nMV;
 
 };
+
+// Subclasses
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+class MvSearchColour:public Colourizer
+{
+public:
+  MvSearchColour(map<string, string> configMap);
+
+  ~MvSearchColour() {delete [] _mvs;}
+
+  void forwardME(imgpel* prevKeyFrame, imgpel* currFrame);
+
+  void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+
+private:
+  int _param;
+
+};
+
+class MvSameColour:public Colourizer
+{
+public:
+  MvSameColour(map<string, string> configMap);
+
+  ~MvSameColour() {_mvFile.close(); delete [] _mvs;}
+
+  void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+
+private:
+  void readMVFile();
+private:
+  ifstream _mvFile;
+};
+
+map<string, string>& readConfig(string filename);
+
 #endif //COULOURIZER_INC_COLOURIZER
