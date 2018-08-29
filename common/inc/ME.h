@@ -10,8 +10,8 @@ int calcSAD(imgpel* blk1, imgpel* blk2, int width1, int width2, int s1,int s2,in
 
 int calcSAD(imgpel* blk1, imgpel* blk2, int width, int blocksize);
 
-void TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
-         int step, int center, int width, int height, int blocksize);
+int TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
+        int step, int center, int width, int height, int blocksize);
 
 
 #endif // COMMON_INC_ME_H

@@ -30,6 +30,7 @@ typedef struct _mvinfo {
   int   iMvy;    //y-dir motion vector
   float fDist;
   bool  bOMBCFlag;
+  int frameNo;
 } mvinfo;
 
 enum CAVLCBlockTypes {

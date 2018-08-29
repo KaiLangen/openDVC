@@ -27,12 +27,12 @@ Colourizer::Colourizer(map<string, string> configMap)
   _files->addFile("wz", configMap["WZFile"])->openFile("rb");
   if (!_files->getFile("wz")->getFileHandle()) {
     cerr << "No such file: " << configMap["WZFile"] << endl;
-    throw std::invalid_argument("Invalid WZ file");
+    throw invalid_argument("Invalid WZ file");
   }
   _files->addFile("key", configMap["KeyFile"])->openFile("rb");
   if (!_files->getFile("key")->getFileHandle()) {
     cerr << "No such file: " << configMap["KeyFile"] << endl;
-    throw std::invalid_argument("Invalid Keyframe file");
+    throw invalid_argument("Invalid Keyframe file");
   }
   _files->addFile("out", "recoloured.yuv")->openFile("wb");
 
@@ -41,19 +41,10 @@ Colourizer::Colourizer(map<string, string> configMap)
 }
 
 
-/**
- * Description:
- * Recolour the WZ frames using the exact chroma channels from the Key frames.
- * Not REALLY a viable solution, but useful as a lower bounds for the PSNR of
- * a recoloured WZ video.
- * ----------------------------------------------------------------------------
- * Param: None
- * Return: None
- */
 void Colourizer::colourize()
 {
   FILE* fWritePtr   = _files->getFile("out")->getFileHandle();
-  FILE* fWZReadPtr   = _files->getFile("wz")->getFileHandle();
+  FILE* fWZReadPtr  = _files->getFile("wz")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
   imgpel* prevKeyFrame = new imgpel[_yuvFrameSize];
   imgpel* currFrame = new imgpel[_yuvFrameSize];
@@ -80,9 +71,11 @@ void Colourizer::colourize()
   delete [] currFrame;
 }
 
-void Colourizer::MC(imgpel* imgPrevUV, imgpel* imgCurrUV)
+void Colourizer::MC(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   int cX, cY, mvX, mvY, voffset;
+  imgpel* imgPrevUV = prevKeyFrame + _grayFrameSize;
+  imgpel* imgCurrUV = currFrame + _grayFrameSize;
   voffset = _width * _height / 4;
   // copy UV pixels from the previous frame given some motion vectors
   for (int i = 0; i < (_nMV); i++) {
@@ -108,6 +101,15 @@ void Colourizer::MC(imgpel* imgPrevUV, imgpel* imgCurrUV)
   }
 }
 
+/**
+ * Description:
+ * Recolour the WZ frames using the exact chroma channels from the Key frames.
+ * Not REALLY a viable solution, but useful as a lower bounds for the PSNR of
+ * a recoloured WZ video.
+ * ----------------------------------------------------------------------------
+ * Param: prevKeyFrame
+ * Return: currFrame
+ */
 void Colourizer::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   memcpy(currFrame + _grayFrameSize,
@@ -139,7 +141,7 @@ readConfig(string filename)
   else
   {
     cerr << "No such file: " << filename << endl;
-    throw std::invalid_argument("Invalid config file");
+    throw invalid_argument("Invalid config file");
   }
 }
 

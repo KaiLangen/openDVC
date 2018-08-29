@@ -29,6 +29,9 @@ int main(int argc, char** argv)
       case MVSAME:
         col = new MvSameColour(configMap);
         break;
+      case MVMULTI:
+        col = new MvMultiFrame(configMap);
+        break;
       default:
         cerr << "Invalid recolouring method: " << method << endl;
         return 1;

@@ -15,7 +15,7 @@ using namespace std;
 
 class FileManager;
 class SideInformation;
-enum Method {SIMPLE=1, MVSEARCH=2, MVSAME=3};
+enum Method {SIMPLE=1, MVSEARCH=2, MVSAME=3, MVMULTI=4};
 
 // Base Class
 // -----------------------------------------------------------------------------
@@ -26,11 +26,13 @@ public:
   Colourizer(map<string, string> configMap);
   virtual ~Colourizer() {};
 
-  void colourize();
-  virtual void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
   int getWidth() {return _width;}
   int getHeight() {return _height;}
-  void MC(imgpel* imgPrevUV, imgpel* imgCurrUV);
+  virtual void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+  virtual void colourize();
+
+protected:
+  virtual void MC(imgpel* prevKeyFrame, imgpel* currFrame);
 
 protected:
   FileManager* _files;
@@ -50,6 +52,14 @@ protected:
 // Subclasses
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
+
+
+/**
+ * Description: colourizes using block-based motion estimation
+ * on the previous frame.
+ *
+ * Base Class: Colourizer
+ */
 class MvSearchColour:public Colourizer
 {
 public:
@@ -57,15 +67,19 @@ public:
 
   ~MvSearchColour() {delete [] _mvs;}
 
-  void forwardME(imgpel* prevKeyFrame, imgpel* currFrame);
-
   void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
 
 private:
   int _param;
-
 };
 
+
+/**
+ * Description: colourizes using the same bilinear motion vectors that were
+ * used to generate the Luma side-information. Reads MV's from file.
+ *
+ * Base Class: Colourizer
+ */
 class MvSameColour:public Colourizer
 {
 public:
@@ -77,10 +91,39 @@ public:
 
 private:
   void readMVFile();
+
 private:
   ifstream _mvFile;
 };
 
+
+/**
+ * Description: colourizes by performing motion estimation using a number of
+ * other candidate frames.
+ *
+ * Base Class: Colourizer
+ */
+class MvMultiFrame:public Colourizer
+{
+public:
+  MvMultiFrame(map<string, string> configMap);
+
+  ~MvMultiFrame() {delete [] _mvs;}
+
+  void colourize();
+
+  void addColour(imgpel** keyFrameList, imgpel* currFrame);
+
+private:
+  void MC(imgpel** keyFrameList, imgpel* currFrame);
+
+private:
+  int _param;
+  int _nCandidates;
+};
+
+
+// Helper functions
 map<string, string>& readConfig(string filename);
 
 #endif //COULOURIZER_INC_COLOURIZER

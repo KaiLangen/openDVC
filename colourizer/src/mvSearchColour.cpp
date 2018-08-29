@@ -7,7 +7,8 @@
 
 using namespace std;
 
-MvSearchColour::MvSearchColour(map<string, string> configMap): Colourizer(configMap)
+MvSearchColour::MvSearchColour(map<string, string> configMap)
+  : Colourizer(configMap)
 {
   _iRange = atoi(configMap["BlockSize"].c_str());
   _nMV    = _width * _height / (_iRange*_iRange);
@@ -16,13 +17,22 @@ MvSearchColour::MvSearchColour(map<string, string> configMap): Colourizer(config
   _files->addFile("mv", configMap["MVFile"])->openFile("w");
 }
 
-void MvSearchColour::forwardME(imgpel* prevKeyFrame, imgpel* currFrame)
+
+/**
+ * Description:
+ * Recolour the WZ frames using the motion-compensated chroma channels
+ * from the Key frames. Motion vectors are generated using the luma channel.
+ * ----------------------------------------------------------------------------
+ * Param: None
+ * Return: None
+ */
+void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   int index, pos, param, n;
   char motionVectorBuffer[100];
   FILE* mvFilePtr = _files->getFile("mv")->getFileHandle();
-  // TODO: specify this in config file???
-  // take log2 of param to find the number of steps required
+  // take the nearest power of two to  param to find
+  // the step size in pixels
   double L = floor(log2(_param + 1.0));
   double stepMax = pow(2.0, (L-1.0));
   int step = (int)stepMax;
@@ -48,18 +58,5 @@ void MvSearchColour::forwardME(imgpel* prevKeyFrame, imgpel* currFrame)
 //      fwrite(motionVectorBuffer, n, 1, mvFilePtr);
     }
   }
-}
-
-/**
- * Description:
- * Recolour the WZ frames using the motion-compensated chroma channels
- * from the Key frames. Motion vectors are generated using the luma channel.
- * ----------------------------------------------------------------------------
- * Param: None
- * Return: None
- */
-void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
-{
-  forwardME(prevKeyFrame, currFrame);
-  MC(prevKeyFrame + _grayFrameSize, currFrame + _grayFrameSize);
+  MC(prevKeyFrame, currFrame);
 }

@@ -23,7 +23,7 @@ void MvSameColour::readMVFile()
   //fill mv list from file
   if (!_mvFile.good()) {
     cerr << "No such mv file" << endl;
-    throw std::invalid_argument("Invalid MV file");
+    throw invalid_argument("Invalid MV file");
   } else {
     for (int i = 0; i < _nMV; i++) {
       getline(_mvFile, line);
@@ -44,6 +44,5 @@ void MvSameColour::readMVFile()
 void MvSameColour::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   readMVFile();
-  MC(prevKeyFrame + _grayFrameSize,
-     currFrame + _grayFrameSize);
+  MC(prevKeyFrame, currFrame);
 }

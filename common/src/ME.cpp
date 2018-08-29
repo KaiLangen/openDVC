@@ -68,7 +68,24 @@ static int find_min(unsigned int costs[9])
     return location;
 }
 
-void TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
+/**
+ * Three Step Search Algorithm
+ * description: full-pixel motion search. Looks for the block in ref
+ *     that is closest to the block in trg at the center coordinates.
+ * param:
+ *     trg       - target frame
+ *     ref       - reference frame
+ *     mv        - motion vector reference object
+ *     step      - starting step size for TSS
+ *     center    - coordinates of the upper-left pixel in the target block
+ *     width     - width of the frame(s)
+ *     height    - height of the frame(s)
+ *     blockSize - size of the block (height and width).
+ *
+ * return: the final SAD of the matching block.
+ *
+ */
+int TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
         int step, int center, int width, int height, int blocksize)
 {
     // search start location
@@ -133,6 +150,7 @@ void TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
     mv.iMvx = cx - x;
     mv.iMvy = cy - y;
 
+    return costs[4];
 }
 
 //int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2,const int blocksize,const int iPadSize){
