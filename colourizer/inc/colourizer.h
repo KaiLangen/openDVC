@@ -28,7 +28,7 @@ public:
 
   int getWidth() {return _width;}
   int getHeight() {return _height;}
-  virtual void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+  virtual void addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame);
   virtual void colourize();
 
 protected:
@@ -67,7 +67,7 @@ public:
 
   ~MvSearchColour() {delete [] _mvs;}
 
-  void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+  void addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame);
 
 private:
   int _param;
@@ -87,10 +87,15 @@ public:
 
   ~MvSameColour() {_mvFile.close(); delete [] _mvs;}
 
-  void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
+  void addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame);
 
 private:
   void readMVFile();
+
+  void bidirectional_mc(imgpel* prevKeyFrame,
+                                      imgpel* nextKeyFrame,
+                                      imgpel* currFrame);
+
 
 private:
   ifstream _mvFile;
@@ -125,5 +130,7 @@ private:
 
 // Helper functions
 map<string, string>& readConfig(string filename);
+
+void bilinear(imgpel *source, imgpel *buffer, int width, int height);
 
 #endif //COULOURIZER_INC_COLOURIZER

@@ -47,22 +47,31 @@ void Colourizer::colourize()
   FILE* fWZReadPtr  = _files->getFile("wz")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
   imgpel* prevKeyFrame = new imgpel[_yuvFrameSize];
+  imgpel* nextKeyFrame = new imgpel[_yuvFrameSize];
+  imgpel* tmp_ptr;
   imgpel* currFrame = new imgpel[_yuvFrameSize];
   // Read first key frame
-  for (int keyFrameNo = 0; keyFrameNo < (_nframes-1)/_gop; keyFrameNo++) {
-    // read out one key frame (this also moves the file ptr), then
-    // write it to the output file
-    fread(prevKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
+  fread(prevKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
+  for (int keyFrameNo = 1; keyFrameNo < (_nframes-1)/_gop; keyFrameNo++) {
+    // write out prevFrame to the output file
     fwrite(prevKeyFrame, _yuvFrameSize, 1, fWritePtr);
+
+    // read in the next key frame (this also moves the file ptr)
+    fread(nextKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
 
     // skip grayscale version of Key-frame, then write out each of the
     // grayscale frames using the chroma channels of the previous key-frame
     fseek(fWZReadPtr, _grayFrameSize, SEEK_CUR);
     for (int i = 0; i < _gop-1; i++) {
       fread(currFrame, _grayFrameSize, 1, fWZReadPtr);
-      addColour(prevKeyFrame, currFrame);
+      addColour(prevKeyFrame, nextKeyFrame, currFrame);
       fwrite(currFrame, _yuvFrameSize, 1, fWritePtr);
     }
+    // swap prev and next key frame pointers;
+    // nextKeyFrame will be overwritten in the next step
+    tmp_ptr = prevKeyFrame;
+    prevKeyFrame = nextKeyFrame;
+    nextKeyFrame = tmp_ptr;
   }
   // write out the last key frame
   fread(currFrame, _yuvFrameSize, 1, fKeyReadPtr);
@@ -110,7 +119,7 @@ void Colourizer::MC(imgpel* prevKeyFrame, imgpel* currFrame)
  * Param: prevKeyFrame
  * Return: currFrame
  */
-void Colourizer::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
+void Colourizer::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame)
 {
   memcpy(currFrame + _grayFrameSize,
          prevKeyFrame + _grayFrameSize,

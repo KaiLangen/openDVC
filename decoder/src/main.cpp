@@ -8,7 +8,7 @@ using namespace std;
 int main(int argc, char** argv)
 {
   if (argc != 4) {
-    cerr << "Usage: ./enDVC ";
+    cerr << "Usage: ./deDVC ";
     cerr << "[wz varBitstream file] ";
     cerr << "[key frame file] ";
     cerr << "[original video file]" << endl;

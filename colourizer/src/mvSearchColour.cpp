@@ -26,7 +26,7 @@ MvSearchColour::MvSearchColour(map<string, string> configMap)
  * Param: None
  * Return: None
  */
-void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
+void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame)
 {
   int index, pos, param, n;
   char motionVectorBuffer[100];

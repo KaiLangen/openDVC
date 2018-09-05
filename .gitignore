@@ -29,8 +29,13 @@ bin/colour
 bin/mv.csv
 bin/recoloured.yuv
 
-# extra test files "akiyo"
+# extra test files akiyo, coastguard, and football
+bin/foreman*
 bin/akiyo*
-bin/*search*.yuv
-bin/*same*.yuv
-bin/*simple*.yuv
+bin/coastguard*
+bin/football*
+
+# graphics and results
+bin/psnrdata.txt
+bin/graph.py
+bin/*results*
