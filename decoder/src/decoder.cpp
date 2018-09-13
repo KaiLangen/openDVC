@@ -137,6 +137,7 @@ void Decoder::decodeWZframe()
   imgpel* oriCurrFrame = _fb->getCurrFrame();
   imgpel* imgSI      = _fb->getSideInfoFrame();
   imgpel* imgRefinedSI = new imgpel[_frameSize];
+  imgpel* keyColour = new imgpel[_frameSize>>1];
 
   int* iDCT         = _fb->getDctFrame();
   int* iDCTQ        = _fb->getQuantDctFrame();
@@ -170,6 +171,7 @@ void Decoder::decodeWZframe()
     // Read previous key frame
     fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
     fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+    fread(keyColour, _frameSize>>1, 1, fKeyReadPtr);
 
     // Read next key frame
     fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
@@ -339,17 +341,18 @@ void Decoder::decodeWZframe()
 
         idx += 2*frameStep;
       }
-
-      // ---------------------------------------------------------------------
-      // Output decoded frames of the whole GOP
-      // ---------------------------------------------------------------------
-      // First output the key frame
-      fwrite(_fb->getPrevFrame(), _frameSize, 1, fWritePtr);
-
-      // Then output the rest WZ frames
-      for (int i = 0; i < _gop-1; i++)
-        fwrite(_fb->getRecFrames()[i], _frameSize, 1, fWritePtr);
     }
+
+    // ---------------------------------------------------------------------
+    // Output decoded frames of the whole GOP
+    // ---------------------------------------------------------------------
+
+    // First output the key frame
+    fwrite(_fb->getPrevFrame(), _frameSize, 1, fWritePtr);
+
+    // Then output the rest WZ frames
+    for (int i = 0; i < _gop-1; i++)
+      fwrite(_fb->getRecFrames()[i], _frameSize, 1, fWritePtr);
   }
 
   timeEnd = clock();

@@ -15,7 +15,7 @@ using namespace std;
 
 class FileManager;
 class SideInformation;
-enum Method {SIMPLE=1, MVSEARCH=2, MVSAME=3, MVMULTI=4};
+enum Method {MVSAME=1, SIMPLE=2, MVSEARCH=3, MVMULTI=4};
 
 // Base Class
 // -----------------------------------------------------------------------------
@@ -41,6 +41,7 @@ protected:
   int _yuvFrameSize;
   int _method;
   int _gop;
+  int _gopLevel;
   int _width;
   int _height;
   int _nframes;

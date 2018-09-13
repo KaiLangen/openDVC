@@ -20,14 +20,14 @@ int main(int argc, char** argv)
     Colourizer* col; 
     int method = atoi(configMap["Method"].c_str());
     switch(method){
+      case MVSAME:
+        col = new MvSameColour(configMap);
+        break;
       case SIMPLE:
         col = new Colourizer(configMap);
         break;
       case MVSEARCH:
         col = new MvSearchColour(configMap);
-        break;
-      case MVSAME:
-        col = new MvSameColour(configMap);
         break;
       case MVMULTI:
         col = new MvMultiFrame(configMap);

@@ -22,7 +22,8 @@ Colourizer::Colourizer(map<string, string> configMap)
     cerr << "Invalid sequence type!" << endl;
   }
 
-  _gop = atoi(configMap["Gop"].c_str());
+  _gopLevel = atoi(configMap["GopLevel"].c_str());
+  _gop = 1 << _gopLevel;
   _nframes = atoi(configMap["FramesToBeEncoded"].c_str());
   _files->addFile("wz", configMap["WZFile"])->openFile("rb");
   if (!_files->getFile("wz")->getFileHandle()) {
@@ -43,18 +44,21 @@ Colourizer::Colourizer(map<string, string> configMap)
 
 void Colourizer::colourize()
 {
+  int frameStep, idx, wzFrameNo, prevIdx, nextIdx;
   FILE* fWritePtr   = _files->getFile("out")->getFileHandle();
   FILE* fWZReadPtr  = _files->getFile("wz")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
+  imgpel* tmp_ptr, *prevFrame, *currFrame, *nextFrame;
   imgpel* prevKeyFrame = new imgpel[_yuvFrameSize];
   imgpel* nextKeyFrame = new imgpel[_yuvFrameSize];
-  imgpel* tmp_ptr;
-  imgpel* currFrame = new imgpel[_yuvFrameSize];
+  imgpel** recFrames = new imgpel*[_gop];
+
+  for (int i = 0; i < _gop-1; i++)
+    recFrames[i] = new imgpel[_yuvFrameSize];
+
   // Read first key frame
   fread(prevKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
-  for (int keyFrameNo = 1; keyFrameNo < (_nframes-1)/_gop; keyFrameNo++) {
-    // write out prevFrame to the output file
-    fwrite(prevKeyFrame, _yuvFrameSize, 1, fWritePtr);
+  for (int keyFrameNo = 0; keyFrameNo < (_nframes-1)/_gop; keyFrameNo++) {
 
     // read in the next key frame (this also moves the file ptr)
     fread(nextKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
@@ -62,11 +66,46 @@ void Colourizer::colourize()
     // skip grayscale version of Key-frame, then write out each of the
     // grayscale frames using the chroma channels of the previous key-frame
     fseek(fWZReadPtr, _grayFrameSize, SEEK_CUR);
-    for (int i = 0; i < _gop-1; i++) {
-      fread(currFrame, _grayFrameSize, 1, fWZReadPtr);
-      addColour(prevKeyFrame, nextKeyFrame, currFrame);
-      fwrite(currFrame, _yuvFrameSize, 1, fWritePtr);
+
+
+    // start with frameStep = 1/2 gop, then half it each iteration
+    for (int il = 0; il < _gopLevel; il++) {
+      frameStep = _gop / ((il+1)<<1);
+      idx = frameStep;
+
+      // Start decoding the WZ frame
+      while (idx < _gop) {
+        wzFrameNo = keyFrameNo*_gop + idx;
+				cout << "Colouring frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
+
+        // Setup frame pointers within the GOP
+        prevIdx = idx - frameStep;
+        nextIdx = idx + frameStep;
+
+        currFrame = recFrames[idx-1];
+        prevFrame = (prevIdx == 0)    ? prevKeyFrame :
+                                        recFrames[prevIdx-1];
+        nextFrame = (nextIdx == _gop) ? nextKeyFrame :
+                                        recFrames[nextIdx-1];
+				
+				fseek(fWZReadPtr, wzFrameNo*_grayFrameSize, SEEK_SET);
+				fread(currFrame, _grayFrameSize, 1, fWZReadPtr);
+				addColour(prevFrame, nextFrame, currFrame);
+
+        idx += 2*frameStep;
+      }
     }
+
+    // ---------------------------------------------------------------------
+    // Output decoded frames of the whole GOP
+    // ---------------------------------------------------------------------
+
+    // write out prevFrame to the output file
+    fwrite(prevKeyFrame, _yuvFrameSize, 1, fWritePtr);
+
+    for (int i = 0; i < _gop-1; i++)
+      fwrite(recFrames[i], _yuvFrameSize, 1, fWritePtr);
+
     // swap prev and next key frame pointers;
     // nextKeyFrame will be overwritten in the next step
     tmp_ptr = prevKeyFrame;
@@ -77,7 +116,10 @@ void Colourizer::colourize()
   fread(currFrame, _yuvFrameSize, 1, fKeyReadPtr);
   fwrite(currFrame, _yuvFrameSize, 1, fWritePtr);
   delete [] prevKeyFrame;
-  delete [] currFrame;
+  delete [] nextKeyFrame;
+  for (int i = 0; i < _gop-1; i++)
+    delete [] recFrames[i];
+  delete [] recFrames;
 }
 
 void Colourizer::MC(imgpel* prevKeyFrame, imgpel* currFrame)

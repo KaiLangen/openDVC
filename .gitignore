@@ -38,4 +38,7 @@ bin/football*
 # graphics and results
 bin/psnrdata.txt
 bin/graph.py
+bin/run_test.sh
+bin/show_screen.py
+bin/output.txt
 bin/*results*
