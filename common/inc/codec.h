@@ -11,21 +11,17 @@ class Codec
 public:
   Codec() {};
 
-  int     getFrameWidth()      { return _frameWidth; };
-  int     getFrameHeight()     { return _frameHeight; };
-  int     getBitPlaneLength()  { return _bitPlaneLength; };
-  int     getQp()              { return _qp; };
-  int     getKeyQp()           { return _keyQp; };
-  int     getNumChnCodeBands() { return _numChnCodeBands; };
+  int getQp()                              { return _qp; };
+  int getKeyQp()                           { return _keyQp; };
 
-  double* getAverage()         { return _average; };
-  double* getAlpha()           { return _alpha; };
-  double* getSigma()           { return _sigma; };
+  double* getAverage()                     { return _average; };
+  double* getSigma()                       { return _sigma; };
 
-  int     getQuantMatrix(int qp, int x, int y) { return QuantMatrix[qp][y][x]; };
-  int     getQuantStep(int x, int y) { return _quantStep[y][x]; };
+  int getQuantMatrix(int qp, int x, int y) { return QuantMatrix[qp][y][x]; };
+  int getQuantStep(int x, int y)           { return _quantStep[y][x]; };
 
-  Bitstream* getBitstream() { return _bs; };
+  double* getAlpha(int i)                  { return _alpha[i]; };
+  Bitstream* getBitstream(int i)           { return _bs[i]; };
 
 protected:
   const static int  ResidualBlockSize;
@@ -44,25 +40,20 @@ protected:
 
   int               _quantStep[4][4];
 
-  int               _frameWidth;
-  int               _frameHeight;
-  int               _frameSize;
   int               _numFrames;
-  int               _bitPlaneLength;
   int               _qp;
   int               _keyQp;
   int               _gopLevel;
   int               _gop;
-  int               _numChnCodeBands;
 
-  bool*             _parity;
   double*           _dParity; // TODO temporary for decoder
-  unsigned char*    _crc;
   double*           _average;
-  double*           _alpha;
   double*           _sigma;
 
-  Bitstream*        _bs;
+  bool*             _parity[NCHANS];
+  double*           _alpha[NCHANS];
+  unsigned char*    _crc[NCHANS];
+  Bitstream*        _bs[NCHANS];
 };
 
 #endif // COMMON_INC_CODEC_H

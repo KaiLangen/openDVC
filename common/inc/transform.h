@@ -20,7 +20,7 @@ public:
   void dctTransform(float* src, float* dst);
 
   template <typename T, typename U>
-  void dct4x4(T* src, U* dst, int x, int y);
+  void dct4x4(T* src, U* dst, int x, int y, int c);
 
   // Inverse DCT
   template <typename T>
@@ -44,16 +44,17 @@ private:
   void inverse4x4(int** src, int** dst, int x, int y);
 
   template <typename T>
-  void idct4x4(int* src, T* dst, int x, int y);
+  void idct4x4(int* src, T* dst, int x, int y, int c);
 
   // Quantization
-  void quan4x4(int* src, int* dst, int x, int y);
+  void quan4x4(int* src, int* dst, int x, int y, int c);
 
   // Inverse quantization
 # if SI_REFINEMENT
-  void invquan4x4(int* src, int* dst, int* si, int x, int y, int i, int j);
+  void invquan4x4(int* src, int* dst, int* si,
+                  int x, int y, int i, int j, int c);
 # else
-  void invquan4x4(int* src, int* dst, int* si, int x, int y);
+  void invquan4x4(int* src, int* dst, int* si, int x, int y, int c);
 # endif
 
   //! Minimum mean square error

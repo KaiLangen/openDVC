@@ -1,0 +1,37 @@
+# todo list
+# Common
+- MACRO define luma channel sizes (height x width) corresponding to CIF standards (352 x 288)
+- MACRO define chroma channel sizes (height x width) corresponding to QCIF standards (156 x 144)
+- remove _frameWidth and _frameHeight as codec fields and replace with macros
+- MACRO define channel offsets
+
+
+# Encoder changes
+- add pipelines for chroma channels, duplicating the current pipeline:
+    use CIF size for Y and QCIF for UV;
+    pipeline consists of 1) residual encoding, 2) 4x4 DCT, 3) 4x4 quantization, and 4) LDPCA;
+      1)    can simply subtract entire frame from reference frame
+      2+3)  can reuse the same transform block sizes for all three channels
+            (do not need MB's to coincide with one another)
+      4)    can use the CIF ladder file ("ldpca/6336_regDeg3.lad") for luma
+            and QCIF ladder file ("ldpca/1584_regDeg3.lad") for chroma
+           
+
+- add new bitstreams for UV (and wz files???)
+- use single frame buffer for each frame but increase size
+
+
+# Decoder changes
+- add SI generation and decoder pipelines for chroma channels
+- use MCI for first layer and MC for upper layers
+  (for MC, use MULTI method, with TSS. Quickly implement and compare ES)
+- luma-first, use full-pixel search
+- chroma-first, use half-pel precision search
+
+# test programs
+- ensure that at each stage, a full frame is recoverable. Check:
+  1) after wz -= k -> wz += k,
+  2) after -k -> DCT -> iDCT -> +k,
+  3) after -k -> DCT -> Q -> iQ -> iDCT -> +k,
+  4) after -k -> DCT -> Q -> LDPCA -> iLDPCA -> iQ -> iDCT ->+k,
+

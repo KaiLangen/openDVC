@@ -7,13 +7,12 @@
 class FrameBuffer
 {
 public:
-  FrameBuffer(int width, int height, int gop = 0)
+  FrameBuffer(int gop = 0)
   {
-    int frameSize = width * height;
-    _prevFrame        = new imgpel[frameSize];
-    _currFrame        = new imgpel[frameSize];
-    _nextFrame        = new imgpel[frameSize];
-    _sideInfoFrame    = new imgpel[frameSize];
+    _prevFrame        = new imgpel[FSIZE];
+    _currFrame        = new imgpel[FSIZE];
+    _nextFrame        = new imgpel[FSIZE];
+    _sideInfoFrame    = new imgpel[FSIZE];
 
     if (gop != 0) {
       _recFrames      = new imgpel*[gop-1];
@@ -22,10 +21,10 @@ public:
         _recFrames[i] = new imgpel[frameSize];
     }
 
-    _dctFrame         = new int[frameSize];
-    _quantDctFrame    = new int[frameSize];
-    _decFrame         = new int[frameSize];
-    _invQuantDecFrame = new int[frameSize];
+    _dctFrame         = new int[FSIZE];
+    _quantDctFrame    = new int[FSIZE];
+    _decFrame         = new int[FSIZE];
+    _invQuantDecFrame = new int[FSIZE];
   };
 
   imgpel*  getPrevFrame()        { return _prevFrame; };

@@ -7,10 +7,10 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-  if (argc != 10) {
+  if (argc != 8) {
     cerr << endl;
     cerr << "Usage: ./enDVC ";
-    cerr << "[WZ QP] [key QP] [width] [height] ";
+    cerr << "[WZ QP] [key QP] ";
     cerr << "[frame number] [GOP level] ";
     cerr << "[input file] [output file] [recon file]" << endl;
     cerr << endl;

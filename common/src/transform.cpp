@@ -1,4 +1,3 @@
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -46,56 +45,59 @@ void Transform::dctTransform(T* src, U* dst)
 {
   File* patternFile;
   FILE* patternFh;
-
-  patternFile = FileManager::getManager()->addFile("pattern_dct", "pattern_dct.dat");
+  int frameHeight, frameWidth;
+  patternFile = FileManager::getManager()->addFile("pattern_dct",
+                                                   "pattern_dct.dat");
   patternFile->openFile("w");
   patternFh = patternFile->getFileHandle();
 
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  for (int y = 0; y < height; y += 4)
-    for (int x = 0; x < width; x += 4) {
+  for(int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4) {
+      for (int x = 0; x < frameWidth; x += 4) {
 # if INTEGER_DCT
-      int** srcBuffer = new int*[4];
-      int** dstBuffer = new int*[4];
+        int** srcBuffer = new int*[4];
+        int** dstBuffer = new int*[4];
 
-      for (int i = 0; i < 4; i++) {
-        srcBuffer[i] = new int[4];
-        dstBuffer[i] = new int[4];
-      }
+        for (int i = 0; i < 4; i++) {
+          srcBuffer[i] = new int[4];
+          dstBuffer[i] = new int[4];
+        }
 
-      //copy
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++)
-          srcBuffer[j][i] = (int)src[(x+i) + (y+j)*width];
+        //copy
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++)
+            srcBuffer[j][i] = (int)CHOFFSET(src,c)[(x+i) + (y+j)*frameWidth];
 
-      forward4x4(srcBuffer, dstBuffer, 0, 0);
+        forward4x4(srcBuffer, dstBuffer, 0, 0);
 
 #   if TESTPATTERN
-      for (int i = 0; i < 4; i++)
-        for (int j = 0; j < 4; j++) {
-          for (int idx = 1; idx <= 4; idx++) {
-            int value = (dstBuffer[j][i] >> (16 - idx*4)) & 0xf;
+        for (int i = 0; i < 4; i++)
+          for (int j = 0; j < 4; j++) {
+            for (int idx = 1; idx <= 4; idx++) {
+              int value = (dstBuffer[j][i] >> (16 - idx*4)) & 0xf;
 
-            fprintf(patternFh, "%x", value);
+              fprintf(patternFh, "%x", value);
+            }
+            fprintf(patternFh, "\n");
           }
-          fprintf(patternFh, "\n");
-        }
 #   endif // TESTPATTERN
 
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++) {
-          int sign = (dstBuffer[j][i] >= 0) ? 1 : -1;
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++) {
+            int sign = (dstBuffer[j][i] >= 0) ? 1 : -1;
 
-          dst[(x+i)+(y+j)*width] = sign*((abs(dstBuffer[j][i])*DctScaler[j][i] +
-                                          (0x1<<(DctShift[j][i]-1))) >> DctShift[j][i]);
-        }
+            CHOFFSET(dst,c)[(x+i)+(y+j)*frameWidth] =
+              sign*((abs(dstBuffer[j][i]) * DctScaler[j][i] +
+                    (0x1<<(DctShift[j][i]-1))) >> DctShift[j][i]);
+          }
 # else // if !INTEGER_DCT
-      dct4x4(src, dst, x, y);
+        dct4x4(CHOFFSET(src,c), CHOFFSET(dst,c), x, y);
 # endif // INTEGER_DCT
+      }
     }
-
+  }
   patternFile->closeFile();
 }
 
@@ -103,57 +105,60 @@ void Transform::dctTransform(T* src, U* dst)
 // -----------------------------------------------------------------------------
 void Transform::dctTransform(float* src, float* dst)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  for (int y = 0; y < height; y += 4)
-    for (int x = 0; x < width; x += 4)
-      dct4x4(src, dst, x, y);
+  int frameHeight, frameWidth;
+  for (int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4)
+      for (int x = 0; x < frameWidth; x += 4)
+        dct4x4(CHOFFSET(src,c), CHOFFSET(dst,c), x, y, c);
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-template void Transform::dct4x4(float*  src, float* dst, int x, int y);
-template void Transform::dct4x4(int*    src, int*   dst, int x, int y);
-template void Transform::dct4x4(imgpel* src, int*   dst, int x, int y);
+template void Transform::dct4x4(float* src, float* dst, int x, int y, int c);
+template void Transform::dct4x4(int* src, int* dst, int x, int y, int c);
+template void Transform::dct4x4(imgpel* src, int* dst, int x, int y, int c);
 
 template <typename T, typename U>
-void Transform::dct4x4(T* src, U* dst, int x, int y)
+void Transform::dct4x4(T* src, U* dst, int x, int y, int c)
 {
-  int     width  = _codec->getFrameWidth();
-  int     height = _codec->getFrameHeight();
-  float*  buffer = new float[width*height];
-  float   c;
+  float*  buffer;
+  float   cc;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  buffer = new float[frameWidth*frameHeight];
 
   for (int v = y; v < y+4; v++) {
     if (v == y)
-      c = 1/2.0;
+      cc = 1/2.0;
     else
-      c = (float)(sqrtf(2.0)/2.0);
+      cc = (float)(sqrtf(2.0)/2.0);
 
     for (int i = x; i < x+4; i++) {
       float t = 0.0;
-
-      for (int j = y; j < y+4 ;j++)
-        t += c*(float)cos((2*(j-y)+1)*(v-y)*PI/8.0)*(float)src[i+j*width];
-
-      buffer[i+v*width] = t;
+      for (int j = y; j < y+4 ;j++) {
+        t += cc * (float)cos((2*(j-y)+1)*(v-y)*PI/8.0)
+                * (float)src[i+j*frameWidth];
+      }
+      buffer[i+v*frameWidth] = t;
     }
   }
 
   for (int u = x; u < x+4; u++) {
     if (u == x)
-      c = 1/2.0;
+      cc = 1/2.0;
     else
-      c = (float)(sqrtf(2.0)/2.0);
+      cc = (float)(sqrtf(2.0)/2.0);
 
     for (int v = y; v < y+4; v++) {
       float t = 0.0;
-
-      for (int i = x; i < x+4; i++)
-        t += c*(float)cos((2*(i-x)+1)*(u-x)*PI/8.0)*buffer[i+v*width];
-
-      dst[u+v*width] = (U)t;
+      for (int i = x; i < x+4; i++) {
+        t += cc * (float)cos((2*(i-x)+1)*(u-x)*PI/8.0)
+                * buffer[i+v*frameWidth];
+      }
+      dst[u+v*frameWidth] = (U)t;
     }
   }
 
@@ -217,55 +222,58 @@ template void Transform::invDctTransform(int* src, imgpel* dst);
 template <typename T>
 void Transform::invDctTransform(int* src, T* dst)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  for (int y = 0; y < height; y += 4)
-    for (int x = 0; x < width; x += 4) {
+  int frameWidth, frameHeight;
+  for(int c = 0; c < NCHANS; c++) {
+  frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4)
+      for (int x = 0; x < frameWidth; x += 4) {
 # if INTEGER_DCT
-      int** srcBuffer = new int*[4];
-      int** dstBuffer = new int*[4];
+        int** srcBuffer = new int*[4];
+        int** dstBuffer = new int*[4];
 
-      for (int i = 0; i < 4; i++) {
-        srcBuffer[i] = new int[4];
-        dstBuffer[i] = new int[4];
-      }
-
-      //copy
-      for (int j = 0; j < 4; j++)
         for (int i = 0; i < 4; i++) {
-          int sign = (src[(x+i) + (y+j)*width] >= 0)? 1 : -1;
-
-          srcBuffer[j][i] = sign*((abs(src[x+i+(y+j)*width])*IdctScaler[j][i]+
-                                   (0x1<<(IdctShift[j][i]-7))) >> (IdctShift[j][i]-6));
+          srcBuffer[i] = new int[4];
+          dstBuffer[i] = new int[4];
         }
 
-      inverse4x4(srcBuffer, dstBuffer, 0, 0);
+        //copy
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++) {
+            int sign = (CHOFFSET(src,c)[(x+i)+(y+j)*frameWidth] >= 0)? 1 : -1;
+            srcBuffer[j][i] = 
+              sign * ((abs(CHOFFSET(src,c)[x+i+(y+j)*frameWidth])
+                      * IdctScaler[j][i] +  (0x1<<(IdctShift[j][i]-7)))
+                      >> (IdctShift[j][i]-6));
+          }
 
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++) {
-          int level;
+        inverse4x4(srcBuffer, dstBuffer, 0, 0);
 
-          if (dstBuffer[j][i] >= 0)
-            level = (dstBuffer[j][i]+32)>>6;
-          else
-            level = (dstBuffer[j][i]-32)>>6;
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++) {
+            int level;
+
+            if (dstBuffer[j][i] >= 0)
+              level = (dstBuffer[j][i]+32)>>6;
+            else
+              level = (dstBuffer[j][i]-32)>>6;
 
 #   if RESIDUAL_CODING
-          dst[(x+i) + (y+j)*width] = level;
+            CHOFFSET(dst,c)[(x+i) + (y+j)*frameWidth] = level;
 #   else // if !RESIDUAL_CODING
-          if (level < 0)
-            dst[(x+i) + (y+j)*width] = 0;
-          else if (level > 255)
-            dst[(x+i) + (y+j)*width] = 255;
-          else
-            dst[(x+i) + (y+j)*width] = level;
+            if (level < 0)
+              CHOFFSET(dst,c)[(x+i) + (y+j)*frameWidth] = 0;
+            else if (level > 255)
+              CHOFFSET(dst,c)[(x+i) + (y+j)*frameWidth] = 255;
+            else
+              CHOFFSET(dst,c)[(x+i) + (y+j)*frameWidth] = level;
 #   endif // RESIDUAL_CODING
-        }
+          }
 # else // if !INTEGER_DCT
-      idct4x4(src, dst, x, y);
+        idct4x4(CHOFFSET(src,c), CHOFFSET(dst,c), x, y, c);
 # endif // INTEGER_DCT
-    }
+      }
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -319,16 +327,16 @@ void Transform::inverse4x4(int** src, int** dst, int x, int y)
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-template void Transform::idct4x4(int* src, int*    dst, int x, int y);
-template void Transform::idct4x4(int* src, imgpel* dst, int x, int y);
+template void Transform::idct4x4(int* src, int*    dst, int x, int y, int c);
+template void Transform::idct4x4(int* src, imgpel* dst, int x, int y, int c);
 
 template <typename T>
-void Transform::idct4x4(int* src, T* dst, int x, int y)
+void Transform::idct4x4(int* src, T* dst, int x, int y, int c)
 {
-  int     width  = _codec->getFrameWidth();
-  int     height = _codec->getFrameHeight();
-  float*  buffer = new float[width*height];
-  float   c;
+  float   cc;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  float*  buffer = new float[frameWidth*frameHeight];
 
   for (int v = y; v < y+4; v++) {
     for (int i = x; i < x+4; i++) {
@@ -340,10 +348,10 @@ void Transform::idct4x4(int* src, T* dst, int x, int y)
         else
           c = (float)(sqrtf(2.0)/2.0);
 
-        t += c*(float)cos((2*(v-y)+1)*(j-y)*PI/8.0)*(float)src[i+j*width];
+        t += c*(float)cos((2*(v-y)+1)*(j-y)*PI/8.0)*(float)src[i+j*frameWidth];
       }
 
-      buffer[i+v*width] = t;
+      buffer[i+v*frameWidth] = t;
     }
   }
 
@@ -357,18 +365,18 @@ void Transform::idct4x4(int* src, T* dst, int x, int y)
         else
           c = (float)(sqrtf(2.0)/2.0);
 
-        t += c*(float)cos((2*(u-x)+1)*(i-x)*PI/8.0)*buffer[i+v*width];
+        t += c*(float)cos((2*(u-x)+1)*(i-x)*PI/8.0)*buffer[i+v*frameWidth];
       }
 
 # if RESIDUAL_CODING
-      dst[u+v*width] = (T)t;
+      dst[u+v*frameWidth] = (T)t;
 # else
       if (t <= 0)
-        dst[u+v*width] = 0;
+        dst[u+v*frameWidth] = 0;
       else if (t > 255)
-        dst[u+v*width] = 255;
+        dst[u+v*frameWidth] = 255;
       else
-        dst[u+v*width] = (T)(t+0.5);
+        dst[u+v*frameWidth] = (T)(t+0.5);
 # endif
     }
   }
@@ -380,27 +388,27 @@ void Transform::idct4x4(int* src, T* dst, int x, int y)
 // -----------------------------------------------------------------------------
 void Transform::quantization(int* src, int* dst)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  for (int y = 0; y < height; y += 4)
-    for (int x = 0; x < width; x += 4)
-      quan4x4(src, dst, x, y);
+  int frameHeight, frameWidth;
+  for(int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4)
+      for (int x = 0; x < frameWidth; x += 4)
+        quan4x4(CHOFFSET(src,c), CHOFFSET(dst,c), x, y, c);
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void Transform::quan4x4(int* src, int* dst, int x, int y)
+void Transform::quan4x4(int* src, int* dst, int x, int y, int c)
 {
   int index;
-
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-  int qp     = _codec->getQp();
+  int qp = _codec->getQp();
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
 
   for (int j = 0; j < 4; j++)
     for (int i = 0; i < 4; i++) {
-      index = (x+i) + (y+j)*width;
+      index = (x+i) + (y+j)*frameWidth;
 
       if (i == 0 && j == 0) {
 # if RESIDUAL_CODING
@@ -428,47 +436,51 @@ void Transform::quan4x4(int* src, int* dst, int x, int y)
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 #if SI_REFINEMENT
-void Transform::invQuantization(int* src, int* dst, int* si, int offsetX, int offsetY)
+void Transform::invQuantization(int* src, int* dst, int* si,
+                                int offsetX, int offsetY)
 #else
 void Transform::invQuantization(int* src, int* dst, int* si)
 #endif
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  for (int y = 0; y < height; y += 4)
-    for (int x = 0; x < width; x += 4) {
+  int frameHeight, frameWidth;
+  for(int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4)
+      for (int x = 0; x < frameWidth; x += 4) {
 #if SI_REFINEMENT
-      invquan4x4(src, dst, si, x, y, offsetX, offsetY);
+        invquan4x4(CHOFFSET(src,c), CHOFFSET(dst,c),
+                   si, x, y, offsetX, offsetY, c);
 #else
-      invquan4x4(src, dst, si, x, y);
+        invquan4x4(CHOFFSET(src,c), CHOFFSET(dst,c), si, x, y, c);
 #endif
-    }
+      }
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 # if SI_REFINEMENT
-void Transform::invquan4x4(int* src, int* dst, int* si, int x, int y, int i, int j)
+void Transform::invquan4x4(int* src, int* dst, int* si,
+                           int x, int y, int i, int j, int c)
 # else
-void Transform::invquan4x4(int* src, int* dst, int* si, int x, int y)
+void Transform::invquan4x4(int* src, int* dst, int* si, int x, int y, int c)
 # endif
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-  int qp     = _codec->getQp();
+  int qp = _codec->getQp();
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
 
 # if !SI_REFINEMENT
   for (int j = 0; j < 4; j++)
     for (int i = 0; i < 4; i++)
 # endif
     {
-      int     index = (x+i) + (y+j)*width;
+      int     index = (x+i) + (y+j)*frameWidth;
       int     step  = _codec->getQuantStep(i, j);
       int     mask  = (0x1<<(_codec->getQuantMatrix(qp, i, j)-1)) - 1;
       int     sign  = (src[index]>>(_codec->getQuantMatrix(qp, i, j)-1)) & 0x1;
       int     value = src[index] & mask;
-      double  alpha = _codec->getAlpha()[index];
+      double  alpha = _codec->getAlpha(c)[index];
 
       if (i == 0 && j == 0) {
 # if RESIDUAL_CODING

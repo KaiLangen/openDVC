@@ -26,8 +26,8 @@ bin/stats.dat
 bin/deDVC
 bin/enDVC
 bin/colour
-bin/mv.csv
 bin/recoloured.yuv
+bin/run1
 
 # extra test files akiyo, coastguard, and football
 bin/foreman*
@@ -37,8 +37,14 @@ bin/football*
 
 # graphics and results
 bin/psnrdata.txt
-bin/graph.py
+*.png
+*.jpg
+*.csv
+*.py
 bin/run_test.sh
-bin/show_screen.py
 bin/output.txt
 bin/*results*
+
+# compile_command json files
+compile_commands.json
+tags

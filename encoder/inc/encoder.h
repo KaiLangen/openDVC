@@ -58,7 +58,8 @@ private:
   Transform*        _trans;
 
   CavlcEnc*         _cavlc;
-  LdpcaEnc*         _ldpca;
+  LdpcaEnc*         _ldpca_y;
+  LdpcaEnc*         _ldpca_uv;
 
 # if RESIDUAL_CODING | MODE_DECISION
   int               _rcBitPlaneNum;
@@ -66,7 +67,7 @@ private:
 # endif
 
   int               _maxValue[4][4];
-  int*              _skipMask;
+  int*              _skipMask[NCHANS];
   int               _prevMode;
   int               _prevType;
 
