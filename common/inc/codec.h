@@ -13,15 +13,17 @@ public:
 
   int getQp()                              { return _qp; };
   int getKeyQp()                           { return _keyQp; };
+  int getNumChnCodeBands(int c)            { return _numChnCodeBands[c]; };
 
-  double* getAverage()                     { return _average; };
+
   double* getSigma()                       { return _sigma; };
 
   int getQuantMatrix(int qp, int x, int y) { return QuantMatrix[qp][y][x]; };
-  int getQuantStep(int x, int y)           { return _quantStep[y][x]; };
 
-  double* getAlpha(int i)                  { return _alpha[i]; };
-  Bitstream* getBitstream(int i)           { return _bs[i]; };
+  int getQuantStep(int c, int x, int y)    { return _quantStep[c][y][x]; };
+  double* getAlpha(int c)                  { return _alpha[c]; };
+  Bitstream* getBitstream(int c)           { return _bs[c]; };
+  double* getAverage(int c)                { return _average[c]; };
 
 protected:
   const static int  ResidualBlockSize;
@@ -38,7 +40,6 @@ protected:
   const static int  HuffmanCodeValue[4][3][16];
   const static int  HuffmanCodeLength[4][3][16];
 
-  int               _quantStep[4][4];
 
   int               _numFrames;
   int               _qp;
@@ -47,13 +48,15 @@ protected:
   int               _gop;
 
   double*           _dParity; // TODO temporary for decoder
-  double*           _average;
   double*           _sigma;
 
+  int               _numChnCodeBands[NCHANS];
   bool*             _parity[NCHANS];
+  double*           _average[NCHANS];
   double*           _alpha[NCHANS];
   unsigned char*    _crc[NCHANS];
   Bitstream*        _bs[NCHANS];
+  int               _quantStep[NCHANS][4][4];
 };
 
 #endif // COMMON_INC_CODEC_H

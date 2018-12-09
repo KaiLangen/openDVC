@@ -11,6 +11,7 @@ OUT_DIR    := bin
 ENC_TARGET := $(OUT_DIR)/$(ENC_EXE)
 DEC_TARGET := $(OUT_DIR)/$(DEC_EXE)
 COL_TARGET := $(OUT_DIR)/$(COL_EXE)
+#SND_TARGET := $(OUT_DIR)/$(SND_EXE)
 
 find_objs   = $(subst src/,obj/, \
               $(subst .cpp,.o, \
@@ -20,11 +21,12 @@ COM_OBJS   := $(call find_objs,common)
 ENC_OBJS   := $(call find_objs,encoder)
 DEC_OBJS   := $(call find_objs,decoder)
 COL_OBJS   := $(call find_objs,colourizer)
+#SND_OBJS   := $(call find_objs,sandbox)
 
 # Flags
 CXXFLAGS   := -Wall -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-variable
 #CXXFLAGS   += -O3 
-CXXFLAGS   += -g -std=c++11
+CXXFLAGS   += -g3 -std=c++11
 
 # Utilities
 SHELL      := /bin/sh
@@ -36,6 +38,7 @@ MAKE       := make
 CD         := cd
 CP         := cp -f
 
+
 #############################################################################
 # Rules
 #############################################################################
@@ -45,7 +48,7 @@ ifneq "$(SUB_MAKE)" "yes"
 .DEFAULT_GOAL := default
 
 .PHONY: default
-default: encoder decoder colourizer # bin
+default: encoder #decoder colourizer bin
 	@echo ""
 
 .PHONY: bin

@@ -59,17 +59,17 @@ public:
   int encode(int* frame, int* skipMask);
 
 private:
-  void setupMacroBlock(int* frame, int mbX, int mbY);
-  int encodeMacroBlock(int mbX, int mbY);
+  void setupMacroBlock(int* frame, int mbX, int mbY, int c);
+  int encodeMacroBlock(int mbX, int mbY, int c);
 
-  int symbol2vlc(SyntaxElement* sym);
+  int symbol2vlc(SyntaxElement* sym, int c);
 
-  int encodeNumTrail(SyntaxElement* se);
-  int encodeSignTrail(vector<int>& sign);
-  int encodeLevelsVlc0(SyntaxElement* se);
-  int encodeLevelsVlcN(SyntaxElement* se, int vlc);
-  int encodeTotalZeros(SyntaxElement* se);
-  int encodeRuns(SyntaxElement* se);
+  int encodeNumTrail(SyntaxElement* se, int c);
+  int encodeSignTrail(vector<int>& sign, int c);
+  int encodeLevelsVlc0(SyntaxElement* se, int c);
+  int encodeLevelsVlcN(SyntaxElement* se, int vlc, int c);
+  int encodeTotalZeros(SyntaxElement* se, int c);
+  int encodeRuns(SyntaxElement* se, int c);
 
   File*     _patternFile;
   FILE*     _patternFh;

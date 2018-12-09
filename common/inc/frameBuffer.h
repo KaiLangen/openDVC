@@ -14,11 +14,12 @@ public:
     _nextFrame        = new imgpel[FSIZE];
     _sideInfoFrame    = new imgpel[FSIZE];
 
+    _gop              = gop;
     if (gop != 0) {
       _recFrames      = new imgpel*[gop-1];
 
       for (int i = 0; i < gop-1; i++)
-        _recFrames[i] = new imgpel[frameSize];
+        _recFrames[i] = new imgpel[FSIZE];
     }
 
     _dctFrame         = new int[FSIZE];
@@ -26,6 +27,25 @@ public:
     _decFrame         = new int[FSIZE];
     _invQuantDecFrame = new int[FSIZE];
   };
+
+  ~FrameBuffer()
+  {
+    delete [] _prevFrame;
+    delete [] _currFrame;
+    delete [] _nextFrame;
+    delete [] _sideInfoFrame;
+
+    if (_recFrames) {
+      for (int i = 0; i < _gop-1; i++)
+        delete [] _recFrames[i];
+     delete _recFrames;
+    }
+
+    delete [] _dctFrame;
+    delete [] _quantDctFrame;
+    delete [] _decFrame;
+    delete [] _invQuantDecFrame;
+  }
 
   imgpel*  getPrevFrame()        { return _prevFrame; };
   imgpel*  getCurrFrame()        { return _currFrame; };
@@ -47,6 +67,7 @@ private:
   int*     _quantDctFrame;
   int*     _decFrame;
   int*     _invQuantDecFrame;
+  int      _gop;
 };
 
 #endif // ENCODER_INC_FRAMEBUFFER_H

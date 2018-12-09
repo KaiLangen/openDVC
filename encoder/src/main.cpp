@@ -20,10 +20,10 @@ int main(int argc, char** argv)
     cout << "DVC2.0 - open source distributed video coding tool" << endl;
     cout << endl;
 
-    Encoder* encoder = new Encoder(argv);
+    Encoder encoder(argv);
 
-    encoder->encodeKeyFrame();
-    encoder->encodeWzFrame();
+    encoder.encodeKeyFrame();
+    encoder.encodeWzFrame();
 
     cout << endl;
     cout << "Bye" << endl;

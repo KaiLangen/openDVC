@@ -12,6 +12,11 @@ class Cavlc
 {
 public:
   Cavlc(Codec* codec, int blockSize);
+  ~Cavlc()
+  {
+    for (int c = 0; c < NCHANS; c++)
+      delete [] _mbs[c];
+  }
 
 protected:
   const static int ScanOrder[16][2];
@@ -22,13 +27,13 @@ protected:
   const static byte RunTableL[15][16];
   const static byte RunTableC[15][16];
 
-  int getNumNonzero(int x,int y);
+  int getNumNonzero(int x,int y, int c);
 
   Codec*  _codec;
 
   int     _blockSize;
 
-  mb*     _mbs;
+  mb*     _mbs[NCHANS];
 };
 
 #endif // COMMON_INC_CAVLC_H

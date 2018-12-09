@@ -1,4 +1,8 @@
-# deopendencies and objects from build process
+# tests and sandbox directories
+tests/
+sandbox/
+
+# dependencies and objects from build process
 common/dep/*
 common/obj/*
 encoder/dep/*
@@ -18,7 +22,7 @@ bin/pattern_cavlc.dat
 bin/pattern_dct.dat
 bin/pattern_rlc.dat
 bin/rec.yuv
-bin/wz.bin
+bin/wz*.bin
 bin/wz.y
 bin/jm/jm.log
 bin/jm/leakybucketparam.cfg

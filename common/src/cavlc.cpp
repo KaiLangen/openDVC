@@ -1,6 +1,7 @@
 
 #include "cavlc.h"
 #include "codec.h"
+#include "config.h"
 
 const int Cavlc::ScanOrder[16][2] = {
   {0, 0}, {1, 0}, {0, 1}, {0, 2},
@@ -135,18 +136,22 @@ Cavlc::Cavlc(Codec* codec, int blockSize)
 
   _blockSize = blockSize;
 
-  _mbs = new mb[_codec->getBitPlaneLength()];
+  int bplen;
+  for (int c = 0; c < NCHANS; c++) {
+    bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+    _mbs[c] = new mb[bplen];
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-int Cavlc::getNumNonzero(int x, int y)
+int Cavlc::getNumNonzero(int x, int y, int c)
 {
-  int width = _codec->getFrameWidth();
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
 
   int mbX = x / _blockSize;
   int mbY = y / _blockSize;
 
-  return _mbs[mbX + mbY*(width/_blockSize)].nnz[0][0];
+  return _mbs[c][mbX + mbY*(frameWidth/_blockSize)].nnz[0][0];
 }
 

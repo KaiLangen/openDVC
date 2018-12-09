@@ -18,12 +18,12 @@ class Encoder : public Codec
 {
 public:
   Encoder(char** argv);
-  ~Encoder() { /* TODO Remember to free memory space */ };
+  ~Encoder();
 
   void encodeKeyFrame();
   void encodeWzFrame();
 
-private:
+protected:
   void initialize();
 
   void encodeWzHeader();
@@ -39,11 +39,12 @@ private:
 
   void generateSkipMask();
 
-  int encodeSkipMask();
+  void encodeSkipMask();
   int getHuffmanCode(int qp, int type, int symbol, int& code, int& length);
 
   void encodeFrameLdpca(int* frame);
-  void setupLdpcaSource(int* frame, int* source, int offsetX, int offsetY, int bitPosition);
+  void setupLdpcaSource(int* frame, int* source,
+                        int offsetX, int offsetY, int bitPosition, int c);
   void computeCRC(int* data, const int length, unsigned char* crc);
 
   void report();
@@ -58,21 +59,21 @@ private:
   Transform*        _trans;
 
   CavlcEnc*         _cavlc;
-  LdpcaEnc*         _ldpca_y;
-  LdpcaEnc*         _ldpca_uv;
+  LdpcaEnc*         _ldpca;
+# if !HARDWARE_LDPC
+  LdpcaEnc*         _ldpca_cif;
+#endif
 
 # if RESIDUAL_CODING | MODE_DECISION
   int               _rcBitPlaneNum;
   int               _rcQuantMatrix[4][4];
 # endif
+  int               _prevType[NCHANS];
 
-  int               _maxValue[4][4];
+  int               _maxValue[NCHANS][4][4];
   int*              _skipMask[NCHANS];
-  int               _prevMode;
-  int               _prevType;
 
-  int               _modeCounter[4];
+  int               _modeCounter[NCHANS][4];
 };
 
 #endif // ENCODER_INC_ENCODER_H
-

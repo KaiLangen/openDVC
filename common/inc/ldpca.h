@@ -14,6 +14,7 @@ class Ldpca
 {
 public:
   Ldpca(const string& fileName, Codec* codec);
+  ~Ldpca();
 
 protected:
   Codec*  _codec;

@@ -43,3 +43,15 @@ Ldpca::Ldpca(const string& fileName, Codec* codec)
   fclose(fh);
 }
 
+Ldpca::~Ldpca()
+{
+delete [] _jc;
+delete [] _numInc;
+
+for (int i = 0; i < _numCodes; i++) {
+  delete [] _ir[i];
+  delete [] _txSeq[i];
+}
+delete [] _ir;
+delete [] _txSeq;
+}

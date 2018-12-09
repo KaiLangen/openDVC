@@ -412,18 +412,18 @@ void Transform::quan4x4(int* src, int* dst, int x, int y, int c)
 
       if (i == 0 && j == 0) {
 # if RESIDUAL_CODING
-        dst[index] = (abs(src[index])/_codec->getQuantStep(i, j));
+        dst[index] = (abs(src[index])/_codec->getQuantStep(c, i, j));
 
-        if (src[index]/(_codec->getQuantStep(i, j)) < 0)
+        if (src[index]/(_codec->getQuantStep(c, i, j)) < 0)
           dst[index] |= (0x1 << (_codec->getQuantMatrix(qp, i, j)-1));
 # else // if !RESIDUAL_CODING
         dst[index] = src[index]/(_codec->getQuantStep(0, 0));
 # endif // RESIDUAL_CODING
       }
       else if (_codec->getQuantMatrix(qp, i, j) != 0) {
-        dst[index] = (abs(src[index])/_codec->getQuantStep(i, j));
+        dst[index] = (abs(src[index])/_codec->getQuantStep(c, i, j));
 
-        if ((src[index]/_codec->getQuantStep(i, j)) < 0)
+        if ((src[index]/_codec->getQuantStep(c, i, j)) < 0)
           dst[index] |= (0x1 << (_codec->getQuantMatrix(qp, i, j)-1));
       }
       else {
@@ -476,7 +476,7 @@ void Transform::invquan4x4(int* src, int* dst, int* si, int x, int y, int c)
 # endif
     {
       int     index = (x+i) + (y+j)*frameWidth;
-      int     step  = _codec->getQuantStep(i, j);
+      int     step  = _codec->getQuantStep(c, i, j);
       int     mask  = (0x1<<(_codec->getQuantMatrix(qp, i, j)-1)) - 1;
       int     sign  = (src[index]>>(_codec->getQuantMatrix(qp, i, j)-1)) & 0x1;
       int     value = src[index] & mask;

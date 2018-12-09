@@ -36,56 +36,91 @@ Encoder::Encoder(char** argv)
   _gopLevel    = atoi(argv[4]);
   _files->addFile("src", argv[5])->openFile("rb");
   string wzFileName = argv[6];
+  _files->addFile("key", argv[7]);
 
 
   char chan[NCHANS] = {'y','u','v'};
-  for(int i = 0; i < NCHANS; i++) {
+  for(int c = 0; c < NCHANS; c++) {
     string wzChanFile = wzFileName.substr(0, wzFileName.find(".bin"))
-                         + "_" + chan[i] + ".bin";
+                         + "_" + chan[c] + ".bin";
     stringstream wzKey; 
-    wzKey << "wz_" << chan[i];
+    wzKey << "wz_" << chan[c];
     _files->addFile(wzKey.str(), wzChanFile)->openFile("wb");
-    _bs[i] = new Bitstream(1024, _files->getFile(wzKey.str())->getFileHandle());
+    _bs[c] = new Bitstream(1024, _files->getFile(wzKey.str())->getFileHandle());
   }
 
   initialize();
+}
+
+Encoder::~Encoder()
+{
+  delete [] _sigma;
+  delete _fb;
+  delete _trans;
+  delete _cavlc;
+  delete _ldpca;
+# if !HARDWARE_LDPC
+  delete _ldpca_cif;
+#endif
+
+  for (int c = 0; c < NCHANS; c++) {
+    delete [] _parity[c];
+    delete [] _alpha[c];
+// TODO: fix this! _crc pointers are incremented, so unable to free. 
+//                 Make an extra set of pointers, or use indices instead.
+//                 delete _skipMask gets "double free or corruption" error.
+//                 Investigate.
+//    delete [] _crc[c];
+//    delete [] _skipMask[c];
+    delete [] _average[c];
+    delete _bs[c];
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 void Encoder::initialize()
 {
-  for (int i = 0; i < 4; i++)
-    _modeCounter[i] = 0;
 
-  _gop          = 1 << _gopLevel;
+  _gop                   = 1 << _gopLevel;
 
-  _average      = new double[NBANDS];
-  _sigma        = new double[NBANDS];
-  _prevMode     = 0;
-  _prevType     = 0;
-  _fb           = new FrameBuffer();
-  _trans        = new Transform(this);
-  _cavlc        = new CavlcEnc(this, 4);
+  _sigma                 = new double[NBANDS];
+  _fb                    = new FrameBuffer();
+  _trans                 = new Transform(this);
+  _cavlc                 = new CavlcEnc(this, 4);
 
-  _parity[0]     = new bool[Y_BPLEN * BitPlaneNum[_qp]];
-  _parity[1]     = new bool[UV_BPLEN * BitPlaneNum[_qp]];
-  _parity[2]     = new bool[UV_BPLEN * BitPlaneNum[_qp]];
-  _alpha[0]      = new double[Y_FSIZE];
-  _alpha[1]      = new double[UV_FSIZE];
-  _alpha[2]      = new double[UV_FSIZE];
+  _parity[0]             = new bool[Y_BPLEN * BitPlaneNum[_qp]];
+  _parity[1]             = new bool[UV_BPLEN * BitPlaneNum[_qp]];
+  _parity[2]             = new bool[UV_BPLEN * BitPlaneNum[_qp]];
+  _alpha[0]              = new double[Y_FSIZE];
+  _alpha[1]              = new double[UV_FSIZE];
+  _alpha[2]              = new double[UV_FSIZE];
 
-  _crc[0]        = new unsigned char[BitPlaneNum[_qp] * 4];
-  _crc[1]        = new unsigned char[BitPlaneNum[_qp]];
-  _crc[2]        = new unsigned char[BitPlaneNum[_qp]];
+# if HARDWARE_LDPC
+  _crc[0]                = new unsigned char[BitPlaneNum[_qp] * 4];
+# else
+  _crc[0]                = new unsigned char[BitPlaneNum[_qp]];
+#endif
+  _crc[1]                = new unsigned char[BitPlaneNum[_qp]];
+  _crc[2]                = new unsigned char[BitPlaneNum[_qp]];
 
-  _skipMask[0]   = new int[Y_BPLEN];
-  _skipMask[1]   = new int[UV_BPLEN];
-  _skipMask[2]   = new int[UV_BPLEN];
+  _skipMask[0]           = new int[Y_BPLEN];
+  _skipMask[1]           = new int[UV_BPLEN];
+  _skipMask[2]           = new int[UV_BPLEN];
+
+  for (int c = 0; c < NCHANS; c++) {
+    _average[c]          = new double[NBANDS];
+    _prevType[c]         = 0;
+    _numChnCodeBands[c]  = 16;
+    for (int i = 0; i < 4; i++)
+      _modeCounter[c][i] = 0;
+  }
 
   // Initialize LDPC
-  _ldpca_y      = new LdpcaEnc("ldpca/6336_regDeg3.lad", this);
-  _ldpca_uv     = new LdpcaEnc("ldpca/1584_regDeg3.lad", this);
+# if !HARDWARE_LDPC
+  _ldpca_cif             = new LdpcaEnc("ldpca/6336_regDeg3.lad", this);
+#endif
+  _ldpca                 = new LdpcaEnc("ldpca/1584_regDeg3.lad", this);
 }
 
 // -----------------------------------------------------------------------------
@@ -148,6 +183,7 @@ void Encoder::encodeWzFrame()
 
   clock_t timeStart, timeEnd;
   double cpuTime;
+  int bplen;
 
   imgpel* currFrame     = _fb->getCurrFrame();
   int*    dctFrame      = _fb->getDctFrame();
@@ -208,7 +244,6 @@ void Encoder::encodeWzFrame()
         // STAGE 3 - Quantization
         // ---------------------------------------------------------------------
         _trans->quantization(dctFrame, quantDctFrame);
-
         // ---------------------------------------------------------------------
         // STAGE 4 - Mode decision
         // ---------------------------------------------------------------------
@@ -228,70 +263,73 @@ void Encoder::encodeWzFrame()
         // ---------------------------------------------------------------------
         // STAGE 6 - Encode (Channel/Entropy)
         // ---------------------------------------------------------------------
-        int numBands = 0;
+        for (int c = 0; c < NCHANS; c++) { 
+          bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+          int numBands = 0;
+          _rcBitPlaneNum = 0;
+          for (int bandNo = 0; bandNo < 16; bandNo++) {
+            int x = ScanOrder[bandNo][0];
+            int y = ScanOrder[bandNo][1];
 
-        _rcBitPlaneNum = 0;
+            if (bandNo < _numChnCodeBands[c]) {
+              _rcQuantMatrix[y][x] = QuantMatrix[_qp][y][x];
+              _rcBitPlaneNum += _rcQuantMatrix[y][x];
+            }
 
-        for (int bandNo = 0; bandNo < 16; bandNo++) {
-          int x = ScanOrder[bandNo][0];
-          int y = ScanOrder[bandNo][1];
-
-          if (bandNo < NBANDS) {
-            _rcQuantMatrix[y][x] = QuantMatrix[_qp][y][x];
-            _rcBitPlaneNum += _rcQuantMatrix[y][x];
+            if (QuantMatrix[_qp][y][x] > 0)
+              numBands++;
           }
 
-          if (QuantMatrix[_qp][y][x] > 0)
-            numBands++;
-        }
+          int bits = 0;
 
-        int bits = 0;
-
-        // Entropy encode
-        if (numBands > NBANDS)
-          bits = _cavlc->encode(quantDctFrame, _skipMask);
+          // Entropy encode
+          if (numBands > _numChnCodeBands[c])
+            bits = _cavlc->encode(quantDctFrame, _skipMask[c]);
 
 # if HARDWARE_FLOW
-        if (bits%32 != 0) {
-          int dummy = 32 - (bits%32);
-          _bs->write(0, dummy);
-        }
+          if (bits%32 != 0) {
+            int dummy = 32 - (bits%32);
+            _bs[c]->write(0, dummy);
+          }
 # endif // HARDWARE_FLOW
 
-        // Channel encode
-        encodeFrameLdpca(quantDctFrame);
+          // Channel encode
+          encodeFrameLdpca(quantDctFrame);
 
-        // ---------------------------------------------------------------------
-        // STAGE 7 - Write parity and CRC bits to the bitstream
-        // ---------------------------------------------------------------------
+          // ---------------------------------------------------------------------
+          // STAGE 7 - Write parity and CRC bits to the bitstream
+          // ---------------------------------------------------------------------
 # if RESIDUAL_CODING
-        for (int i = 0; i < _rcBitPlaneNum; i++)
+          for (int i = 0; i < _rcBitPlaneNum; i++)
 # else // if !RESIDUAL_CODING
-        for (int i = 0; i < BitPlaneNum[_qp]; i++)
+          for (int i = 0; i < BitPlaneNum[_qp]; i++)
 # endif // RESIDUAL_CODING
-        {
-          for (int j = 0; j < _bitPlaneLength; j++)
-            _bs->write(int(_parity[j+i*_bitPlaneLength]), 1);
+          {
+            for (int j = 0; j < bplen; j++)
+              _bs[c]->write(int(_parity[c][j+i*bplen]), 1);
 
 # if !HARDWARE_FLOW
 #   if HARDWARE_LDPC
-          if (_bitPlaneLength == 6336)
-            for (int n = 0; n < 4; n++)
-              _bs->write(_crc[i*4+n], 8);
-          else
-            _bs->write(_crc[i], 8);
+            if (c == 0)
+              for (int n = 0; n < 4; n++)
+                _bs[c]->write(_crc[c][i*4+n], 8);
+            else
+              _bs[c]->write(_crc[c][i], 8);
 #   else // if !HARDWARE_LDPC
-          _bs->write(_crc[i], 8);
+              _bs[c]->write(_crc[c][i], 8);
 #   endif // HARDWARE_LDPC
 # endif // !HARDWARE_FLOW
-        }
+          }
 
-        idx += 2*frameStep;
+          idx += 2*frameStep;
+        }
       } // Finish encoding the WZ frame
     }
   }
 
-  _bs->flush();
+  // Flush all bitstreams
+  for (int c = 0; c < NCHANS; c++)
+    _bs[c]->flush();
 
   timeEnd = clock();
   cpuTime = (timeEnd - timeStart) / CLOCKS_PER_SEC;
@@ -313,8 +351,7 @@ void Encoder::encodeWzFrame()
 void Encoder::computeResidue(int* residue)
 {
   int     blockCount;
-  int     frameHeight;
-  int     frameWidth;
+  int     frameHeight, frameWidth, frameSize;
   imgpel* refFrame;
   imgpel* backwardRefFrame = _fb->getPrevFrame();
   imgpel* forwardRefFrame  = _fb->getNextFrame();
@@ -335,19 +372,13 @@ void Encoder::computeResidue(int* residue)
 
   for (int c = 0; c < NCHANS; c++) { 
     blockCount = 0;
-    if (c == 0) {
-      frameHeight = Y_HEIGHT;
-      frameWidth  = Y_WIDTH;
-      frameSize = Y_FSIZE;
-    } else {
-      frameHeight = UV_HEIGHT;
-      frameWidth  = UV_WIDTH;
-      frameSize = UV_FSIZE;
-    }
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    frameSize = (c == 0) ? Y_FSIZE : UV_FSIZE;
     for (int j = 0; j < frameHeight; j += ResidualBlockSize)
       for (int i = 0; i < frameWidth; i += ResidualBlockSize) {
 # if HARDWARE_OPT
-        refFrame = CHOFFSET(backwardRefFrame,c);
+        refFrame = backwardRefFrame;
 # else // if !HARDWARE_OPT
         int bckDist; // backward distortion
         int fwdDist; // forward distortion
@@ -403,76 +434,86 @@ int Encoder::computeSad(imgpel* blk1, imgpel* blk2, int width1, int width2, int 
 // -----------------------------------------------------------------------------
 void Encoder::updateMaxValue(int* block)
 {
-  for (int y = 0; y < 4; y++)
-    for (int x = 0; x < 4; x++)
-      _maxValue[y][x] = 0;
+  int frameWidth, frameHeight;
+  // need a max value for each subband, for each channel
+  for (int c = 0; c < NCHANS; c++)
+    for (int y = 0; y < 4; y++)
+      for (int x = 0; x < 4; x++)
+        _maxValue[c][y][x] = 0;
 
-  for (int y = 0; y < _frameHeight; y += 4)
-    for (int x = 0; x < _frameWidth; x += 4)
-      for (int j = 0; j < 4; j++)
-        for (int i = 0; i < 4; i++)
-          if (abs(_maxValue[j][i]) < abs(block[(x+i) + (y+j)*_frameWidth]))
-            _maxValue[j][i] = block[(x+i) + (y+j)*_frameWidth];
+  for (int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int y = 0; y < frameHeight; y += 4)
+      for (int x = 0; x < frameWidth; x += 4)
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++)
+            if (abs(_maxValue[c][j][i]) <
+                abs(CHOFFSET(block,c)[(x+i) + (y+j)*frameWidth]))
+              _maxValue[c][j][i] =
+                 CHOFFSET(block,c)[(x+i) + (y+j)*frameWidth];
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 void Encoder::computeQuantStep()
 {
-  for (int j = 0; j < 4; j++) {
-    for (int i = 0; i < 4; i++) {
+  for (int c = 0; c < NCHANS; c++)
+    for (int j = 0; j < 4; j++) {
+      for (int i = 0; i < 4; i++) {
 # if RESIDUAL_CODING
 
 #   if !HARDWARE_FLOW
-      _bs->write(abs(_maxValue[j][i]), 11);
+      _bs[c]->write(abs(_maxValue[c][j][i]), 11);
 #   endif
 
       if (QuantMatrix[_qp][j][i] != 0) {
 #   if HARDWARE_QUANTIZATION
-        _quantStep[j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
+        _quantStep[c][j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
 #   else // if !HARDWARE_QUANTIZATION
         int iInterval = 1 << QuantMatrix[_qp][j][i];
 
-        _quantStep[j][i] = (int)ceil(double(2*abs(_maxValue[j][i]))/double(iInterval-1));
-        _quantStep[j][i] = Max(_quantStep[j][i], MinQStepSize[_qp][j][i]);
+        _quantStep[c][j][i] = (int)ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval-1));
+        _quantStep[c][j][i] = Max(_quantStep[c][j][i], MinQStepSize[_qp][j][i]);
 #   endif // HARDWARE_QUANTIZATION
       }
       else
-        _quantStep[j][i] = 1;
+        _quantStep[c][j][i] = 1;
 
 # else // if !RESIDUAL_CODING
 
       if (i != 0 || j != 0) {
-        _bs->write(abs(_maxValue[j][i]), 11);
+        _bs[c]->write(abs(_maxValue[c][j][i]), 11);
 
 #   if HARDWARE_QUANTIZATION
         if (QuantMatrix[_qp][j][i] != 0)
-          _quantStep[j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
+          _quantStep[c][j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
         else
-          _quantStep[j][i] = 0;
+          _quantStep[c][j][i] = 0;
 #   else // if !HARDWARE_QUANTIZATION
         int iInterval = 1 << (QuantMatrix[_qp][j][i]);
 
 #     if AC_QSTEP
         if (QuantMatrix[_qp][j][i] != 0) {
-          _quantStep[j][i] = (int)ceil(double(2*abs(_maxValue[j][i]))/double(iInterval-1));
+          _quantStep[c][j][i] = (int)ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval-1));
 
-          if (_quantStep[j][i] < 0)
-            _quantStep[j][i] = 0;
+          if (_quantStep[c][j][i] < 0)
+            _quantStep[c][j][i] = 0;
         }
         else
-          _quantStep[j][i] = 1;
+          _quantStep[c][j][i] = 1;
 #     else // if !AC_QSTEP
         if (QuantMatrix[_qp][j][i] != 0)
-          _quantStep[j][i] = ceil(double(2*abs(_maxValue[j][i]))/double(iInterval));
+          _quantStep[c][j][i] = ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval));
         else
-          _quantStep[j][i] = 1;
+          _quantStep[c][j][i] = 1;
 #     endif // AC_QSTEP
 
 #   endif // HARDWARE_QUANTIZATION
       }
       else
-        _quantStep[j][i] = 1 << (DC_BITDEPTH-QuantMatrix[_qp][j][i]);
+        _quantStep[c][j][i] = 1 << (DC_BITDEPTH-QuantMatrix[_qp][j][i]);
 # endif // RESIDUAL_CODING
     }
   }
@@ -480,100 +521,102 @@ void Encoder::computeQuantStep()
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
+// TODO: modify to select for each block in YUV
 void Encoder::selectCodingMode(int* frame)
 {
-  int numBands = 0;
+  int numBands;
   int mode;
   int codingMode;
+  int frameWidth, frameHeight;
+  double th1 = 0.15;
+  double th2 = 0.05;
+  double th3 = 0.01;
+  double energy1, energy2, energy3;
 
-  memset(_average, 0x00, 16*sizeof(double));
-
-  for (int bandNo = 0; bandNo < 16; bandNo++) {
-    int i = ScanOrder[bandNo][0];
-    int j = ScanOrder[bandNo][1];
-
-    if (QuantMatrix[_qp][j][i] > 0)
-      numBands++;
-  }
-
-  for (int j = 0; j < _frameHeight; j++)
-    for (int i = 0; i < _frameWidth; i++) {
-      int mask, data;
-
-      mask = (0x1 << (QuantMatrix[_qp][j%4][i%4]-1)) - 1;
-      data = frame[i + j*_frameWidth] & mask;
-
-      _average[(i%4) + (j%4)*4] += data;
+  for (int c = 0; c < NCHANS; c++) {
+    numBands = 0;
+    for (int bandNo = 0; bandNo < 16; bandNo++) {
+      int i = ScanOrder[bandNo][0];
+      int j = ScanOrder[bandNo][1];
+      if (QuantMatrix[_qp][j][i] > 0)
+        numBands++;
     }
 
-  for (int i = 0; i < 16; i++)
-    _average[i] /= _bitPlaneLength;
+    memset(_average[c], 0x00, 16*sizeof(double));
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    for (int j = 0; j < frameHeight; j++) {
+      for (int i = 0; i < frameWidth; i++) {
+        int mask, data;
+        mask = (0x1 << (QuantMatrix[_qp][j%4][i%4]-1)) - 1;
+        data = CHOFFSET(frame,c)[i + j*frameWidth] & mask;
+        _average[c][(i%4) + (j%4)*4] += data;
+      }
+    }
 
-  double th1      = 0.15;
-  double th2      = 0.05;
-  double th3      = 0.01;
-  double energy1  = 0.0;
-  double energy2  = 0.0;
-  double energy3  = 0.0;
-
-  for (int i = 0; i < 16; i++) {
-    int x = ScanOrder[i][0];
-    int y = ScanOrder[i][1];
-
-    if (i < 3)
-      energy1 += _average[x + y*4];
-    else if (i < 6)
-      energy2 += _average[x + y*4];
-    else
-      energy3 += _average[x + y*4];
-  }
-
-  energy1 /= 3;
-
-  if (numBands > 3) {
-    if (numBands >= 6)
-      energy2 /= 3;
-    else
-      energy2 /= (numBands-3);
-  }
-  else
-    energy2 = 0;
-
-  if (numBands > 6)
-    energy3 /= (numBands-6);
-  else
-    energy3 = 0;
-
-  if (energy1 > (th1/(double)(Scale[0][_qp]))) {
-    if (energy2 > (th2/(double)(Scale[1][_qp]))) {
-      if (energy3 > (th3/(double)(Scale[2][_qp])))
-        mode = 0; // channel coding (channel coding for all bands)
+    for (int i = 0; i < 16; i++)
+      if (c == 0)
+        _average[c][i] /= Y_BPLEN;
       else
-        mode = 2; // hybrid mode 2 (channel coding for lower 6 bands
-                        //                entropy coding for other bands)
+        _average[c][i] /= UV_BPLEN;
+
+    energy1  = 0.0;
+    energy2  = 0.0;
+    energy3  = 0.0;
+
+    for (int i = 0; i < 16; i++) {
+      int x = ScanOrder[i][0];
+      int y = ScanOrder[i][1];
+
+      if (i < 3)
+        energy1 += _average[c][x + y*4];
+      else if (i < 6)
+        energy2 += _average[c][x + y*4];
+      else
+        energy3 += _average[c][x + y*4];
+    }
+
+    energy1 /= 3;
+    if (numBands > 3) {
+      if (numBands >= 6)
+        energy2 /= 3;
+      else
+        energy2 /= (numBands-3);
     }
     else
-      mode = 1;   // hybrid mode 1 (channel coding for lower 3 bands
-                        //                entropy coding for other bands)
+      energy2 = 0;
+
+    if (numBands > 6)
+      energy3 /= (numBands-6);
+    else
+      energy3 = 0;
+
+    if (energy1 > (th1/(double)(Scale[0][_qp]))) {
+      if (energy2 > (th2/(double)(Scale[1][_qp]))) {
+        if (energy3 > (th3/(double)(Scale[2][_qp])))
+          mode = 0; // channel coding (channel coding for all bands)
+        else
+          mode = 2; // hybrid mode 2 (channel coding for lower 6 bands
+                          //                entropy coding for other bands)
+      }
+      else
+        mode = 1;   // hybrid mode 1 (channel coding for lower 3 bands
+                          //                entropy coding for other bands)
+    }
+    else
+      mode = 3;     // entropy coding (entropy coding for all bands)
+
+    _modeCounter[c][mode]++;
+
+    codingMode = mode;
+
+    _bs[c]->write(codingMode, 2);
+
+    if (codingMode == 0) _numChnCodeBands[c] = 16; else
+    if (codingMode == 1) _numChnCodeBands[c] =  3; else
+    if (codingMode == 2) _numChnCodeBands[c] =  6; else
+                         _numChnCodeBands[c] =  0;
   }
-  else
-    mode = 3;     // entropy coding (entropy coding for all bands)
-
-  _modeCounter[mode]++;
-
-# if HARDWARE_CMS
-  codingMode = _prevMode;
-  _prevMode  = mode;
-# else // if !HARDWARE_CMS
-  codingMode = mode;
-# endif // HARDWARE_CMS
-
-  _bs->write(codingMode, 2);
-
-  if (codingMode == 0) _numChnCodeBands = 16; else
-  if (codingMode == 1) _numChnCodeBands =  3; else
-  if (codingMode == 2) _numChnCodeBands =  6; else
-                       _numChnCodeBands =  0;
 }
 
 // -----------------------------------------------------------------------------
@@ -589,39 +632,45 @@ void Encoder::generateSkipMask()
 # if RESIDUAL_CODING
   int* frame    = _fb->getQuantDctFrame();
 # else // if !RESIDUAL_CODING
-  int* frame    = new int[_frameSize];
-  int* frameDct = new int[_frameSize];
+  int* frame    = new int[FSIZE];
+  int* frameDct = new int[FSIZE];
 
-  for (int i = 0; i < _frameSize; i++)
+  for (int i = 0; i < FSIZE; i++)
     frame[i] = _fb->getPrevFrame()[i] - _fb->getCurrFrame()[i];
 
   _trans->dctTransform(frame, frameDct);
   _trans->quantization(frameDct, frame);
 # endif // !RESIDUAL_CODING
 
-  memset(_skipMask, 0x0, sizeof(int)*_bitPlaneLength);
+  int frameWidth, frameHeight, bplen;
+  for (int c = 0; c < NCHANS; c++) {
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+    memset(_skipMask[c], 0x0, sizeof(int)*bplen);
+    for (int j = 0; j < frameHeight; j += SkipBlockSize) {
+      for (int i = 0; i < frameWidth; i += SkipBlockSize) {
+        int distortion = 0;
+        int blockIndex = i/SkipBlockSize + (j/SkipBlockSize)*(frameWidth/SkipBlockSize);
 
-  for (int j = 0; j < _frameHeight; j += SkipBlockSize)
-    for (int i = 0; i < _frameWidth; i += SkipBlockSize) {
-      int distortion = 0;
-      int blockIndex = i/SkipBlockSize + (j/SkipBlockSize)*(_frameWidth/SkipBlockSize);
+        for (int y = 0; y < SkipBlockSize; y++)
+          for (int x = 0; x < SkipBlockSize; x++) {
+            int mask, data;
 
-      for (int y = 0; y < SkipBlockSize; y++)
-        for (int x = 0; x < SkipBlockSize; x++) {
-          int mask, data;
-
-          mask = (0x1 << (QuantMatrix[_qp][y][x]-1)) - 1;
-          data = frame[(i+x) + (j+y)*_frameWidth] & mask;
+            mask = (0x1 << (QuantMatrix[_qp][y][x]-1)) - 1;
+            data = CHOFFSET(frame,c)[(i+x) + (j+y)*frameWidth] & mask;
 
 # if HARDWARE_OPT
-          distortion += data;
+            distortion += data;
 # else // if !HARDWARE_OPT
-          distortion += data * data;
+            distortion += data * data;
 # endif // HARDWARE_OPT
-        }
+          }
 
-      _skipMask[blockIndex] = (distortion < threshold) ? 1 : 0;
+        _skipMask[c][blockIndex] = (distortion < threshold) ? 1 : 0;
+      }
     }
+  }
 
 # if !RESIDUAL_CODING
   delete [] frame;
@@ -629,79 +678,99 @@ void Encoder::generateSkipMask()
 # endif // !RESIDUAL_CODING
 }
 
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-int Encoder::encodeSkipMask()
-{
-  int n0 = 0; // number of non-skipped blocks
-  int diff;
-  int bitCount;
-  int sign;
-  int code;
-  int length;
-  int run = 0;
-  int index = 0;
 
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+void Encoder::encodeSkipMask()
+{
+  // n0 = number of non-skipped blocks
+  int n0, diff, bitCount, sign, code, length, run, index;
+  int frameWidth, frameHeight, bplen;
+  for (int c = 0; c < NCHANS; c++) {
+    index = 0;
+    n0 = 0;
+    run = 0;
+    bitCount = 0;
+    frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+    bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
 # if HARDWARE_FLOW
-  // Pad zero
-  int dummy = 20;
-  _bs->write(0, dummy);
+    // Pad zero
+    int dummy = 20;
+    _bs[c]->write(0, dummy);
 # endif // HARDWARE_FLOW
 
-  for (int i = 0; i < _bitPlaneLength; i++)
-    if (_skipMask[i] == 0)
-      n0++;
+    for (int i = 0; i < bplen; i++)
+      if (_skipMask[c][i] == 0)
+        n0++;
 
-  diff = abs(n0 - _bitPlaneLength/2);
+    diff = abs(n0 - bplen/2);
 
 # if HARDWARE_OPT
-  int type = _prevType;
-  int nextType = diff / (_bitPlaneLength/6);
-  _prevType = nextType;
+    int type = _prevType[c];
+    int nextType = diff / (bplen/6);
+    _prevType[c] = nextType;
 # else // if !HARDWARE_OPT
-  int type = diff / (_bitPlaneLength/6);
+    int type = diff / (bplen/6);
 # endif // HARDWARE_OPT
 
-  if (type > 2) type = 2;
+    if (type > 2) type = 2;
 
-  _bs->write(type, 2);
+    _bs[c]->write(type, 2);
 
-  bitCount = 2;
+    bitCount = 2;
 
   // Directly output first bit to bitstream
-  sign = _skipMask[0];
+    sign = _skipMask[c][0];
 
-  _bs->write(sign, 1);
+    _bs[c]->write(sign, 1);
 
-  bitCount++;
-  run++;
-  index++;
+    bitCount++;
+    run++;
+    index++;
 
 # if TESTPATTERN
-  File* patternFile;
-  FILE* patternFh;
+    File* patternFile;
+    FILE* patternFh;
 
-  patternFile = _files->addFile("pattern_rlc", "pattern_rlc.dat");
-  patternFile->openFile("w");
-  patternFh = patternFile->getFileHandle();
+    patternFile = _files->addFile("pattern_rlc", "pattern_rlc.dat");
+    patternFile->openFile("w");
+    patternFh = patternFile->getFileHandle();
 
-  for (int idx = 1; idx <= 8; idx++) {
-    int data = (sign >> (32-idx*4)) & 0xf;
-    fprintf(patternFh, "%x", data);
-  }
-  fprintf(patternFh, "\n");
+    for (int idx = 1; idx <= 8; idx++) {
+      int data = (sign >> (32-idx*4)) & 0xf;
+      fprintf(patternFh, "%x", data);
+    }
+    fprintf(patternFh, "\n");
 # endif // TESTPATTERN
 
-  // Huffman code for other bits
-  while (index < _bitPlaneLength) {
-    if (_skipMask[index] == sign) {
-      run++;
+    // Huffman code for other bits
+    while (index < bplen) {
+      if (_skipMask[c][index] == sign) {
+        run++;
 
-      if (run == 16) { // reach maximum run length
+        if (run == 16) { // reach maximum run length
+          bitCount += getHuffmanCode(_qp, type, run-1, code, length);
+
+          _bs[c]->write(code, length);
+
+          run = 1;
+
+# if TESTPATTERN
+          for (int idx = 1; idx <= 8; idx++) {
+            int data = (code >> (32-idx*4)) & 0xf;
+            fprintf(patternFh, "%x", data);
+          }
+          fprintf(patternFh, "\n");
+# endif // TESTPATTERN
+        }
+      }
+      else {
         bitCount += getHuffmanCode(_qp, type, run-1, code, length);
 
-        _bs->write(code, length);
+        _bs[c]->write(code, length);
 
+        sign = _skipMask[c][index];
         run = 1;
 
 # if TESTPATTERN
@@ -712,14 +781,14 @@ int Encoder::encodeSkipMask()
         fprintf(patternFh, "\n");
 # endif // TESTPATTERN
       }
+
+      index++;
     }
-    else {
+
+    if (run != 0) {
       bitCount += getHuffmanCode(_qp, type, run-1, code, length);
 
-      _bs->write(code, length);
-
-      sign = _skipMask[index];
-      run = 1;
+      _bs[c]->write(code, length);
 
 # if TESTPATTERN
       for (int idx = 1; idx <= 8; idx++) {
@@ -730,35 +799,17 @@ int Encoder::encodeSkipMask()
 # endif // TESTPATTERN
     }
 
-    index++;
-  }
-
-  if (run != 0) {
-    bitCount += getHuffmanCode(_qp, type, run-1, code, length);
-
-    _bs->write(code, length);
-
 # if TESTPATTERN
-    for (int idx = 1; idx <= 8; idx++) {
-      int data = (code >> (32-idx*4)) & 0xf;
-      fprintf(patternFh, "%x", data);
-    }
-    fprintf(patternFh, "\n");
-# endif // TESTPATTERN
-  }
-
-# if TESTPATTERN
-  patternFile->closeFile();
+    patternFile->closeFile();
 # endif // TESTPATTERN
 
 # if HARDWARE_FLOW
-  if (bitCount%32 != 0) { // pad zero
-    int dummy = 32 - (bitCount%32);
-    _bs->write(0, dummy);
-  }
+    if (bitCount%32 != 0) { // pad zero
+      int dummy = 32 - (bitCount%32);
+      _bs[c]->write(0, dummy);
+    }
 # endif // HARDWARE_FLOW
-
-  return bitCount;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -777,83 +828,90 @@ int Encoder::getHuffmanCode(int qp, int type, int symbol, int& code, int& length
 // -----------------------------------------------------------------------------
 void Encoder::encodeFrameLdpca(int* frame)
 {
-  int   bitPosition;
-  int*  ldpcaSource = new int[_bitPlaneLength + 8];
-  bool* accumulatedSyndrome = _parity;
+  int   bitPosition, frameSize, bplen;
+  int*  ldpcaSource;
+  bool* accumulatedSyndrome;
 
-  for (int band = 0; band < _numChnCodeBands; band++) {
-    int i = ScanOrder[band][0];
-    int j = ScanOrder[band][1];
+  for (int c = 0; c < NCHANS; c++) {
+    accumulatedSyndrome = _parity[c];
+    frameSize = (c == 0) ? Y_FSIZE : UV_FSIZE;
+    bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+    ldpcaSource = new int[bplen + 8];
+    for (int band = 0; band < _numChnCodeBands[c]; band++) {
+      int i = ScanOrder[band][0];
+      int j = ScanOrder[band][1];
 
 # if RESIDUAL_CODING
-    for (bitPosition = _rcQuantMatrix[j][i]-1; bitPosition >= 0; bitPosition--)
+      for (bitPosition = _rcQuantMatrix[j][i]-1; bitPosition >= 0; bitPosition--)
 # else // if !RESIDUAL_CODING
-    for (bitPosition = QuantMatrix[_qp][j][i]-1; bitPosition >= 0; bitPosition--)
+      for (bitPosition = QuantMatrix[_qp][j][i]-1; bitPosition >= 0; bitPosition--)
 # endif // RESIDUAL_CODING
-    {
-      setupLdpcaSource(frame, ldpcaSource, i, j, bitPosition);
+      {
+        setupLdpcaSource(frame, ldpcaSource, i, j, bitPosition, c);
 
+        if (c == 0) {
 # if HARDWARE_LDPC
-      if (_bitPlaneLength == 6336) {
-        for (int n = 0; n < 4; n++) {
-          _ldpca->encode(ldpcaSource + n*1584, accumulatedSyndrome);
+          for (int n = 0; n < 4; n++) {
+            _ldpca->encode(ldpcaSource + n*1584, accumulatedSyndrome);
 
-          computeCRC(ldpcaSource + n*1584, 1584, _crc+n);
+            computeCRC(ldpcaSource + n*1584, 1584, _crc[c]+n);
 
-          accumulatedSyndrome += _bitPlaneLength/4;
-        }
+            accumulatedSyndrome += bplen/4;
+          }
 
-        _crc += 4;
-        cout << ".";
-      }
-      else {
-        _ldpca->encode(ldpcaSource, accumulatedSyndrome);
-
-        cout << ".";
-
-        computeCRC(ldpcaSource, _bitPlaneLength, _crc);
-
-        accumulatedSyndrome += _frameSize/16;
-
-        _crc++;
-      }
+          _crc[c] += 4;
+          cout << ".";
 # else // if !HARDWARE_LDPC
-      _ldpca->encode(ldpcaSource, accumulatedSyndrome);
+        _ldpca_cif->encode(ldpcaSource, accumulatedSyndrome);
 
-      cout << ".";
+        cout << ".";
 
-      computeCRC(ldpcaSource, _bitPlaneLength, _crc);
+        computeCRC(ldpcaSource, bplen, _crc[c]);
 
-      accumulatedSyndrome += _frameSize/16;
+        accumulatedSyndrome += frameSize/16;
 
-      _crc++;
+        _crc[c]++;
 # endif // HARDWARE_LDPC
+        } else {
+          _ldpca->encode(ldpcaSource, accumulatedSyndrome);
+
+          cout << ".";
+
+          computeCRC(ldpcaSource, bplen, _crc[c]);
+
+          accumulatedSyndrome += frameSize/16;
+
+          _crc[c]++;
+        }
+      }
     }
+    delete [] ldpcaSource;
   }
-
   cout << endl;
-
-  delete [] ldpcaSource;
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void Encoder::setupLdpcaSource(int* frame, int* source, int offsetX, int offsetY, int bitPosition)
+void Encoder::setupLdpcaSource(int* frame, int* source,
+                               int offsetX, int offsetY,
+                               int bitPosition, int c)
 {
-  for (int y = 0; y < _frameHeight; y = y+4)
-    for (int x = 0; x < _frameWidth; x = x+4) {
-      int blockIdx = (x/4) + (y/4)*(_frameWidth/4);
-      int frameIdx = (x+offsetX) + (y+offsetY)*_frameWidth;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  for (int y = 0; y < frameHeight; y = y+4)
+    for (int x = 0; x < frameWidth; x = x+4) {
+      int blockIdx = (x/4) + (y/4)*(frameWidth/4);
+      int frameIdx = (x+offsetX) + (y+offsetY)*frameWidth;
 
 # if SKIP_MODE
 
-      if (_skipMask[blockIdx] == 1)
+      if (_skipMask[c][blockIdx] == 1)
         source[blockIdx] = 0;
       else
-        source[blockIdx] = (frame[frameIdx] >> bitPosition) & 0x1;
+        source[blockIdx] = (CHOFFSET(frame,c)[frameIdx] >> bitPosition) & 0x1;
 
 # else // if !SKIP_MODE
-      source[blockIdx] = (frame[frameIdx] >> bitPosition) & 0x1;
+      source[blockIdx] = (CHOFFSET(frame,c)[frameIdx] >> bitPosition) & 0x1;
 # endif // SKIP_MODE
 
     }
@@ -891,11 +949,15 @@ void Encoder::computeCRC(int* data, const int length, unsigned char* crc)
 void Encoder::report()
 {
 # if MODE_DECISION
-  cout << "Mode usage: ";
-
-  for (int i = 0; i < 4; i++) {
-    float usage = (float)_modeCounter[i]/75.0 * 100.0;
-    cout << usage << " ";
+  char colour_chan[NCHANS] = {'Y', 'U', 'V'};
+  cout << "Mode usage: " <<endl;
+  for (int c = 0; c < NCHANS; c++) {
+  cout << colour_chan[c] << ": ";
+    for (int i = 0; i < 4; i++) {
+      float usage = (float)_modeCounter[c][i]/75.0 * 100.0;
+      cout << usage << " ";
+    }
+    cout << endl;
   }
 
   cout << endl;
