@@ -6,23 +6,12 @@
 #include "ldpcaDec.h"
 #include "codec.h"
 
-LdpcaDec::LdpcaDec(const string& fileName, Codec* codec) : Ldpca(fileName, codec)
+LdpcaDec::LdpcaDec(const string& ladFile, const string& datFile, Codec* codec)
+  : Ldpca(ladFile, codec)
 {
 # if INVERSE_MATRIX
   FILE* fh;
-
-  int width          = _codec->getFrameWidth();
-  int height         = _codec->getFrameHeight();
-  int bitPlaneLength = _codec->getBitPlaneLength();
-
-  if (width == 352 && height == 288)
-#   if HARDWARE_LDPC
-    fh = fopen("ldpca/Inverse_Matrix_H_Reg1584.dat", "r");
-#   else // if !HARDWARE_LDPC
-    fh = fopen("ldpca/Inverse_Matrix_H_Reg6336.dat", "r");
-#   endif // HARDWARE_LDPC
-  else
-    fh = fopen("ldpca/Inverse_Matrix_H_Reg1584.dat", "r");
+  fh = fopen(datFile.c_str(), "r");
 
   _invMatrix = new int[1584*1584];
 

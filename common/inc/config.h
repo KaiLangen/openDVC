@@ -21,7 +21,7 @@
 #define HARDWARE_CMS            1
 #define HARDWARE_OPT            1
 #define BIDIRECT_REFINEMENT     0
-#define SI_REFINEMENT           1
+#define SI_REFINEMENT           0
 
 // frame size/offset macros
 #define Y_WIDTH                 352

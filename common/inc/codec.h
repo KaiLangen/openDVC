@@ -47,11 +47,11 @@ protected:
   int               _gopLevel;
   int               _gop;
 
-  double*           _dParity; // TODO temporary for decoder
   double*           _sigma;
 
   int               _numChnCodeBands[NCHANS];
   bool*             _parity[NCHANS];
+  double*           _dParity[NCHANS]; // TODO temporary for decoder
   double*           _average[NCHANS];
   double*           _alpha[NCHANS];
   unsigned char*    _crc[NCHANS];

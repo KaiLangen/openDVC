@@ -45,7 +45,9 @@ double getLaplacian(int iLowerBound,int iUpperBound,double dAlpha,int iSideInfo,
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-double getCondProb(int iBit,int iBand,int iBitLength,int iCurrPos,int iDecodedBit,double dAlpha,int iQuantSize,int iMode){
+double getCondProb(int iBit, int iBand, int iBitLength, int iCurrPos,
+                   int iDecodedBit, double dAlpha, int iQuantSize,
+                   int iMode){
 
   int iSign;
   int c;
@@ -110,38 +112,39 @@ double getCondProb(int iBit,int iBand,int iBitLength,int iCurrPos,int iDecodedBi
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-double CorrModel::getSoftInput(int* si,int* skipMask,int iCurrPos,int *iDecoded,double* dLLR,int x,int y,int iMode){
+double CorrModel::getSoftInput(int* si, int* skipMask, int iCurrPos,
+                               int *iDecoded, double* dLLR, int x, int y,
+                               int iMode, int c){
   double p0,p1;
   double p=0.0;
   double tp=0.0;
   double entropy=0.0;
   int iIndex,iQuantSize,iBitLength;
-  int iWidth,iHeight,iBitplaneLength;
   int iSideInfo,iQP;
   double* dAlpha;
 
-  iWidth = _codec->getFrameWidth();
-  iHeight= _codec->getFrameHeight();
-  iBitplaneLength = _codec->getBitPlaneLength();
-  dAlpha = _codec->getAlpha();
+  dAlpha = _codec->getAlpha(c);
   iQP = _codec->getQp();
   int mask;
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int        bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
 
-  for(int j=0;j<iHeight/4;j++)
-    for(int i=0;i<iWidth/4;i++)
+  for(int j=0;j<frameHeight/4;j++)
+    for(int i=0;i<frameWidth/4;i++)
     {
-      iIndex=i+j*(iWidth/4);
-      iQuantSize=_codec->getQuantStep(x, y);
+      iIndex=i+j*(frameWidth/4);
+      iQuantSize=_codec->getQuantStep(x, y, c);
 #if RESIDUAL_CODING
       iBitLength= _codec->getQuantMatrix(iQP, x, y);
 
       if(iMode==2)
-        iSideInfo = si[(i*4+x)+(j*4+y)*iWidth];
+        iSideInfo = si[(i*4+x)+(j*4+y)*frameWidth];
       else
       {
         mask = (0x1<<(_codec->getQuantMatrix(iQP, x, y)-1))-1;
-        int sign = (si[(i*4+x)+(j*4+y)*iWidth]>>(_codec->getQuantMatrix(iQP, x, y)-1))&0x1;
-        int value = si[(i*4+x)+(j*4+y)*iWidth] & mask;
+        int sign = (si[(i*4+x)+(j*4+y)*frameWidth]>>(_codec->getQuantMatrix(iQP, x, y)-1))&0x1;
+        int value = si[(i*4+x)+(j*4+y)*frameWidth] & mask;
 
         iSideInfo = (sign==0)?value:-1*value;
       }
@@ -149,19 +152,19 @@ double CorrModel::getSoftInput(int* si,int* skipMask,int iCurrPos,int *iDecoded,
       iBitLength=(x==0 && y==0) ? _codec->getQuantMatrix(iQP, x, y)+1 : _codec->getQuantMatrix(iQP, x, y);
 
       if(iMode==2 || (x==0 && y==0))
-        iSideInfo = si[(i*4+x)+(j*4+y)*iWidth];
+        iSideInfo = si[(i*4+x)+(j*4+y)*frameWidth];
       else
       {
         mask = (0x1<<(_codec->getQuantMatrix(iQP, x, y)-1))-1;
-        int sign = (si[(i*4+x)+(j*4+y)*iWidth]>>(_codec->getQuantMatrix(iQP, x, y)-1))&0x1;
-        int value = si[(i*4+x)+(j*4+y)*iWidth] & mask;
+        int sign = (si[(i*4+x)+(j*4+y)*frameWidth]>>(_codec->getQuantMatrix(iQP, x, y)-1))&0x1;
+        int value = si[(i*4+x)+(j*4+y)*frameWidth] & mask;
 
         iSideInfo = (sign==0)?value:-1*value;
       }
 #endif
 
-      p0=getCondProb(0,iSideInfo,iBitLength,iCurrPos,iDecoded[(i)+(j)*iWidth/4],dAlpha[(i*4+x)+(j*4+y)*iWidth],iQuantSize,iMode);
-      p1=getCondProb(1,iSideInfo,iBitLength,iCurrPos,iDecoded[(i)+(j)*iWidth/4],dAlpha[(i*4+x)+(j*4+y)*iWidth],iQuantSize,iMode);
+      p0=getCondProb(0,iSideInfo,iBitLength,iCurrPos,iDecoded[(i)+(j)*frameWidth/4],dAlpha[(i*4+x)+(j*4+y)*frameWidth],iQuantSize,iMode);
+      p1=getCondProb(1,iSideInfo,iBitLength,iCurrPos,iDecoded[(i)+(j)*frameWidth/4],dAlpha[(i*4+x)+(j*4+y)*frameWidth],iQuantSize,iMode);
 
 #if SKIP_MODE
       if(skipMask[iIndex]==1)//skip
@@ -175,8 +178,8 @@ double CorrModel::getSoftInput(int* si,int* skipMask,int iCurrPos,int *iDecoded,
       tp+=(p>0.5)?(1.0-p):(p);
     }
 
-  entropy/=(iBitplaneLength);
-  tp/=(iBitplaneLength);
+  entropy/=(bplen);
+  tp/=(bplen);
   return 0.5*(entropy)*exp(entropy)+sqrt(tp*(1-tp));
 }
 
@@ -186,57 +189,54 @@ double CorrModel::getSoftInput(int* si,int* skipMask,int iCurrPos,int *iDecoded,
 */
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void CorrModel::correlationNoiseModeling(imgpel *imgMCFoward,imgpel* imgMCBackward){
+void CorrModel::correlationNoiseModeling(imgpel *imgMCFoward,
+                                         imgpel* imgMCBackward, int c){
   double e,e2,r;
   int iIndex;
-  int iWidth,iHeight,iBitplaneLength;
-  double* dAlpha;
-  double* dSigma;
-  double* dAverage;
-  iWidth = _codec->getFrameWidth();
-  iHeight= _codec->getFrameHeight();
-  iBitplaneLength = _codec->getBitPlaneLength();
-  dAlpha = _codec->getAlpha();
-  dSigma = _codec->getSigma();
-  dAverage = _codec->getAverage();
+  double* dAlpha = _codec->getAlpha(c);
+  double* dSigma = _codec->getSigma();
+  double* dAverage = _codec->getAverage(c);
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int        bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+  float *residue  = new float[frameWidth*frameHeight];
+  float *residue_b  = new float[frameWidth*frameHeight];
 
-  float *residue  = new float[iWidth*iHeight];
-  float *residue_b  = new float[iWidth*iHeight];
-
-  for(int j=0;j<iHeight;j++)
-    for(int i=0;i<iWidth;i++)
+  for(int j=0;j<frameHeight;j++)
+    for(int i=0;i<frameWidth;i++)
     {
-      residue[i+j*iWidth]=float(imgMCFoward[i+j*iWidth]-imgMCBackward[i+j*iWidth])/2;
+      residue[i+j*frameWidth] =
+        float(imgMCFoward[i+j*frameWidth]-imgMCBackward[i+j*frameWidth])/2;
     }
-  _trans->dctTransform(residue,residue_b);
+  _trans->dctTransform(residue,residue_b, c);
 
   for(int j=0;j<4;j++)
     for(int i=0;i<4;i++)
     {
       e=e2=0.0;
-      for(int y=0;y<iHeight;y=y+4)
-        for(int x=0;x<iWidth;x=x+4)
+      for(int y=0;y<frameHeight;y=y+4)
+        for(int x=0;x<frameWidth;x=x+4)
         {
-          iIndex=(x+i)+(y+j)*iWidth;
+          iIndex=(x+i)+(y+j)*frameWidth;
           r=fabs((double)residue_b[iIndex]);
           e+=r;
           e2+=r*r;
         }
 
-      e  /=iBitplaneLength;
-      e2 /=iBitplaneLength;
+      e  /=bplen;
+      e2 /=bplen;
       dSigma[i+j*4]=(e2-e*e);
       dAverage[i+j*4]=e;
     }
-  for(int j=0;j<iHeight;j=j+4)
-    for(int i=0;i<iWidth;i=i+4)
+  for(int j=0;j<frameHeight;j=j+4)
+    for(int i=0;i<frameWidth;i=i+4)
     {
       for(int y=0;y<4;y++)
         for(int x=0;x<4;x++)
         {
-          iIndex=(x+i)+(y+j)*iWidth;
+          iIndex=(x+i)+(y+j)*frameWidth;
           double d=fabs((double)residue_b[iIndex])-dAverage[x+y*4];
-          int iQuantStep=_codec->getQuantStep(x, y);
+          int iQuantStep=_codec->getQuantStep(x, y, c);
           if(d*d<=dSigma[x+y*4])
           {
             dAlpha[iIndex]=sqrt(2/(dSigma[x+y*4]+0.1*iQuantStep*iQuantStep));
@@ -258,45 +258,46 @@ void CorrModel::correlationNoiseModeling(imgpel *imgMCFoward,imgpel* imgMCBackwa
 #if SI_REFINEMENT
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void CorrModel::updateCNM(imgpel* imgForward,imgpel* imgBackward,int *refinedMask)
+void CorrModel::updateCNM(imgpel* imgForward, imgpel* imgBackward,
+                          int *refinedMask, int c)
 {
   int iIndex;
-  int iWidth,iHeight,iBitplaneLength;
-  double* dAlpha;
-  double* dSigma;
-  double* dAverage;
-  iWidth = _codec->getFrameWidth();
-  iHeight= _codec->getFrameHeight();
-  iBitplaneLength = _codec->getBitPlaneLength();
-  dAlpha = _codec->getAlpha();
-  dSigma = _codec->getSigma();
-  dAverage = _codec->getAverage();
+  double* dAlpha = _codec->getAlpha(c);
+  double* dSigma = _codec->getSigma();
+  double* dAverage = _codec->getAverage(c);
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int        bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
 
-  float *residue  = new float[iWidth*iHeight];
-  float *residue_b  = new float[iWidth*iHeight];
+  float *residue  = new float[frameWidth*frameHeight];
+  float *residue_b  = new float[frameWidth*frameHeight];
 
-  for(int j=0;j<iHeight;j=j+4)
-    for(int i=0;i<iWidth;i=i+4)
+  for(int j=0;j<frameHeight;j=j+4)
+    for(int i=0;i<frameWidth;i=i+4)
     {
-      if(refinedMask[i/4+(j/4)*iWidth/4])
+      if(refinedMask[i/4+(j/4)*frameWidth/4])
       {
         for(int y=0;y<4;y++)
           for(int x=0;x<4;x++)
           {
-            if(refinedMask[i/4+(j/4)*iWidth/4]==2)
-              residue[i+x+(j+y)*iWidth]=float(imgForward[i+x+(j+y)*iWidth]-imgBackward[i+x+(j+y)*iWidth])/2;
+            if(refinedMask[i/4+(j/4)*frameWidth/4]==2)
+              residue[i+x+(j+y)*frameWidth] =
+                float(imgForward[i+x+(j+y)*frameWidth]
+                     -imgBackward[i+x+(j+y)*frameWidth])/2;
             else
-              residue[i+x+(j+y)*iWidth]=float(imgForward[i+x+(j+y)*iWidth]-imgBackward[i+x+(j+y)*iWidth]);
+              residue[i+x+(j+y)*frameWidth] =
+                float(imgForward[i+x+(j+y)*frameWidth]
+                    -imgBackward[i+x+(j+y)*frameWidth]);
           }
 
-        _trans->dct4x4(residue,residue_b,i,j);
+        _trans->dct4x4(residue,residue_b,i,j,c);
 
         for(int y=0;y<4;y++)
           for(int x=0;x<4;x++)
           {
-            iIndex=(x+i)+(y+j)*iWidth;
+            iIndex=(x+i)+(y+j)*frameWidth;
             double d=fabs((double)residue_b[iIndex])-dAverage[x+y*4];
-            int iQuantStep=_codec->getQuantStep(x, y);
+            int iQuantStep=_codec->getQuantStep(x, y,c);
             if(d*d<=dSigma[x+y*4])
             {
               dAlpha[iIndex]=sqrt(2/(dSigma[x+y*4]+0.1*iQuantStep*iQuantStep));

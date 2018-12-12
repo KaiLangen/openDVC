@@ -13,12 +13,15 @@ public:
   CorrModel(Codec* codec, Transform* trans) { _codec = codec; _trans = trans; };
 
 # if SI_REFINEMENT
-  void updateCNM(imgpel* imgForward,imgpel* imgBackward,int *g_iRefinedMask);
+  void updateCNM(imgpel* imgForward, imgpel* imgBackward,
+                 int *g_iRefinedMask, int c);
 # endif
 
-  void correlationNoiseModeling(imgpel* imgMCForward,imgpel *imgMCBackward);
+  void correlationNoiseModeling(imgpel* imgMCForward, imgpel *imgMCBackward,
+                                int c);
 
-  double getSoftInput(int* si,int* skipMask,int iCurrPos,int *decoded,double* LLR,int x,int y,int mode);
+  double getSoftInput(int* si, int* skipMask, int iCurrPos, int *decoded, 
+                      double* LLR, int x, int y, int mode, int c);
 
 private:
   Codec*      _codec;

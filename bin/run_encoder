@@ -1,2 +1,2 @@
-./enDVC 7 25 5 1 foreman_qcif_15hz.yuv wz.bin rec.yuv
+./enDVC 7 25 10 1 foreman_cif_25hz.yuv wz.bin rec.yuv
 

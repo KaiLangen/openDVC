@@ -11,7 +11,7 @@ using std::string;
 class LdpcaDec : public Ldpca
 {
 public:
-  LdpcaDec(const string& fileName, Codec* codec);
+  LdpcaDec(const string& ladFile, const string& datFile, Codec* codec);
 
   void decode(double *LLR_intrinsic, double *accumulatedSyndrome, double *source,
                 double *decoded, double *rate, double *numErrors,unsigned char crccode,int numcode);

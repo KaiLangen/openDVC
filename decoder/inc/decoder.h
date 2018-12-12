@@ -23,7 +23,7 @@ class Decoder : public Codec
 {
 public:
   Decoder(char** argv);
-  ~Decoder() { /* TODO Remember to free memory space */ };
+  ~Decoder();
 
   void decodeWZframe();
 
@@ -39,11 +39,12 @@ private:
 
   void parseKeyStat(const char* filename, double& rate, double& psnr, int& QP);
 
-  int getSyndromeData();
-  int decodeSkipMask();
+  int getSyndromeData(int c);
+  int decodeSkipMask(int c);
 
-  void getSourceBit(int* dct_q, double* source, int q_i, int q_j, int curr_pos);
-  double decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int y, int iOffset);
+  void getSourceBit(int* dct_q, double* source, int q_i, int q_j, int curr_pos, int c);
+  double decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded,
+                    int x, int y, int iOffset, int c);
 
   void motionSearchInit(int maxsearch_range);
 
@@ -60,12 +61,10 @@ private:
   CavlcDec*         _cavlc;
   LdpcaDec*         _ldpca;
 
-  int               _maxValue[4][4];
-  int*              _skipMask;
-
 # if RESIDUAL_CODING | MODE_DECISION
+  // Fields modified for 3 channel decoding 
   int               _rcBitPlaneNum;
-  int*              _rcList;
+  int*              _rcList[NCHANS];
   int               _rcQuantMatrix[4][4];
 # endif
 
@@ -73,10 +72,18 @@ private:
   int*              _spiralSearchY;
   int*              _spiralHpelSearchX;
   int*              _spiralHpelSearchY;
+
+  // Fields modified for 3 channel decoding 
+  int               _maxValue[NCHANS][4][4];
+  int*              _skipMask[NCHANS];
+# if !HARDWARE_LDPC
+  LdpcaDec*         _ldpca_cif;
+#endif
 };
 
-void decodeBits(double *LLR_intrinsic, double *accumulatedSyndrome, double *source,
-                double *decoded, double *rate, double *numErrors,unsigned char crccode,int numcode);
+void decodeBits(double *LLR_intrinsic, double *accumulatedSyndrome,
+                double *source, double *decoded, double *rate,
+                double *numErrors,unsigned char crccode,int numcode);
 int  beliefPropagation(int *ir, int *jc, int m, int n, int nzmax,
                        double *LLR_intrinsic, double *syndrome,
                        double *decoded);

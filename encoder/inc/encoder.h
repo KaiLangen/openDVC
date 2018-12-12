@@ -31,18 +31,18 @@ protected:
   void computeResidue(int* residue);
   int  computeSad(imgpel* blk1, imgpel* blk2, int width1, int width2, int step1, int step2, int blockSize);
 
-  void updateMaxValue(int* block);
+  void updateMaxValue(int* block, int c);
 
-  void computeQuantStep();
+  void computeQuantStep(int c);
 
-  void selectCodingMode(int* frame);
+  void selectCodingMode(int* frame, int c);
 
-  void generateSkipMask();
+  void generateSkipMask(int c);
 
-  void encodeSkipMask();
+  void encodeSkipMask(int c);
   int getHuffmanCode(int qp, int type, int symbol, int& code, int& length);
 
-  void encodeFrameLdpca(int* frame);
+  void encodeFrameLdpca(int* frame, int c);
   void setupLdpcaSource(int* frame, int* source,
                         int offsetX, int offsetY, int bitPosition, int c);
   void computeCRC(int* data, const int length, unsigned char* crc);

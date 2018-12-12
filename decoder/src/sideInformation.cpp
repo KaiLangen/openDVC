@@ -19,42 +19,45 @@ SideInformation::SideInformation(Codec* codec, CorrModel* model)
   _codec = codec;
   _model = model;
 
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
+  for (int c = 0; c < NCHANS; c++) {
+    int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+    int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
-  _varList0 = new mvinfo[width * height / 64];
-  _varList1 = new mvinfo[width * height / 64];
+    _varList0[c] = new mvinfo[frameWidth * frameHeight / 64];
+    _varList1[c] = new mvinfo[frameWidth * frameHeight / 64];
 
 # if SI_REFINEMENT
-  _refinedMask = new int[width * height / 16];
+    _refinedMask[c] = new int[frameWidth * frameHeight / 16];
 # endif
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::lowpassFilter(imgpel* src, imgpel* dst, const int boxSize)
+void SideInformation::lowpassFilter(imgpel* src, imgpel* dst, const int boxSize, int c)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
 
   const int left  = boxSize/2;
   const int right = boxSize - (left + 1);
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
-  for (int y = 0; y < height; y++)
-    for (int x = 0; x < width; x++) {
+
+  for (int y = 0; y < frameHeight; y++)
+    for (int x = 0; x < frameWidth; x++) {
       int sum   = 0;
       int total = 0;
 
       // Sum up pixels within the box
       for (int j = y-left; j <= y+right; j++)
         for (int i = x-left; i <= x+right; i++)
-          if (i >= 0 && i < width &&
-              j >= 0 && j < height) {
-            sum += src[i+j*width];
+          if (i >= 0 && i < frameWidth &&
+              j >= 0 && j < frameHeight) {
+            sum += src[i+j*frameWidth];
             total++;
           }
 
-      dst[x+y*width] = (imgpel)(sum/total);
+      dst[x+y*frameWidth] = (imgpel)(sum/total);
     }
 }
 
@@ -63,11 +66,9 @@ void SideInformation::lowpassFilter(imgpel* src, imgpel* dst, const int boxSize)
 /*
 *get approximately true motion field
 */
-void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, const int iRange)
+void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate,
+                                const int iRange, int c)
 {
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
   int px,py;
   float fDist;
   float fMinDist = -1.0;
@@ -75,22 +76,22 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
   int iMinx=0,iMiny=0;
   int iIndex;
   int iMVx,iMVy;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
-  mvinfo *mv= new mvinfo[iWidth*iHeight/(iRange*iRange)];
+  mvinfo *mv= new mvinfo[frameWidth*frameHeight/(iRange*iRange)];
 
   //half pixel buffer
   imgpel* buffer= new imgpel[iRange*iRange*4];
 
 
-  for(int y=0;y<iHeight;y=y+iRange)
-    for(int x=0;x<iWidth;x=x+iRange)
-    {
-      iIndex    = x/iRange+(y/iRange)*(iWidth/(iRange));
+  for(int y=0;y<frameHeight;y=y+iRange) {
+    for(int x=0;x<frameWidth;x=x+iRange) {
+      iIndex    = x/iRange+(y/iRange)*(frameWidth/(iRange));
       fMinDist = -1;
       //first iteration: using 16x16 block size
 
-      for(int pos=0;pos<(32+1)*(32+1);pos++)
-        {
+      for(int pos=0;pos<(32+1)*(32+1);pos++) {
           iMVx=static_cast<Decoder*>(_codec)->getSpiralHpelSearchX()[pos];
           iMVy=static_cast<Decoder*>(_codec)->getSpiralHpelSearchY()[pos];
 
@@ -98,9 +99,10 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
           py=iMVy+y;
 
           fRatio=float(1.0+0.05*sqrtf((float)iMVx*iMVx+(float)iMVy*iMVy));
-          if(px>=0 && px<iWidth && py>=0 && py<iHeight)
+          if(px>=0 && px<frameWidth && py>=0 && py<frameHeight)
           {
-            fDist=(float)calcSAD(prev,curr,px,py,x,y,iRange,iWidth,iHeight);
+            fDist=(float)calcSAD(prev, curr, px, py,
+                                 x, y, iRange, frameWidth, frameHeight);
             fDist*=fRatio;
 
             if(fMinDist<0 || fDist<fMinDist)
@@ -112,17 +114,18 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
           }
         }
 
-      //}
       //half pixel ME
       //bilinear intepolation
-      bilinear(prev,buffer,iRange,iRange,iWidth,iHeight,x+iMinx,y+iMiny);
+      bilinear(prev, buffer, iRange, iRange, 
+               frameWidth, frameHeight, x+iMinx, y+iMiny, c);
       fMinDist=-1;
 
-      for(int j=0;j<2;j++)
-        for(int i=0;i<2;i++)
-        {
+      for(int j=0;j<2;j++) {
+        for(int i=0;i<2;i++) {
           fDist=0;
-          fDist=(float)calcSAD((buffer+i+j*(2*iRange)),(curr+x+y*iWidth),iRange*2, iWidth,2,1,iRange);
+          fDist=(float)calcSAD((buffer+i+j*(2*iRange)),
+                               (curr+x+y*frameWidth),
+                               iRange*2, frameWidth, 2, 1, iRange);
           if(fMinDist<0 || fDist<fMinDist)
           {
             fMinDist = fDist;
@@ -132,14 +135,14 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
             mv[iIndex].iCy=y+iMiny/2;
           }
         }
-
+      }
     }
+  }
 
   //select suitable motion vector for each block
-  for(int j=0;j<iHeight/(iRange);j++)
-    for(int i=0;i<iWidth/(iRange);i++)
-    {
-      iIndex=i+j*(iWidth/(iRange));
+  for(int j=0;j<frameHeight/(iRange);j++) {
+    for(int i=0;i<frameWidth/(iRange);i++) {
+      iIndex=i+j*(frameWidth/(iRange));
       candidate[iIndex].iCx=i*iRange;
       candidate[iIndex].iCy=j*iRange;
       candidate[iIndex].iMvx=mv[iIndex].iMvx;
@@ -147,7 +150,7 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
 
       int max_area=0;
       //select closest motion vector
-      for(int k=0;k<(iWidth*iHeight/(iRange*iRange));k++)
+      for(int k=0;k<(frameWidth*frameHeight/(iRange*iRange));k++)
       {
         int x=candidate[iIndex].iCx;
         int y=candidate[iIndex].iCy;
@@ -163,6 +166,7 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
         }
       }
     }
+  }
 
   delete [] mv;
   delete [] buffer;
@@ -177,38 +181,40 @@ void SideInformation::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate, c
 void SideInformation::createSideInfo(imgpel* imgPrevKey,
                                      imgpel* imgNextKey,
                                      imgpel* imgCurrFrame,
-                                     std::FILE* mvFilePtr)
+                                     std::FILE* mvFilePtr,
+                                     int c)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
 
-  imgpel* mc1 = new imgpel[width*height];
-  imgpel* mc2 = new imgpel[width*height];
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  imgpel* mc1 = new imgpel[frameWidth*frameHeight];
+  imgpel* mc2 = new imgpel[frameWidth*frameHeight];
 
-  imgpel* mc1_f = new imgpel[width*height];
-  imgpel* mc1_b = new imgpel[width*height];
-  imgpel* mc2_f = new imgpel[width*height];
-  imgpel* mc2_b = new imgpel[width*height];
+  imgpel* mc1_f = new imgpel[frameWidth*frameHeight];
+  imgpel* mc1_b = new imgpel[frameWidth*frameHeight];
+  imgpel* mc2_f = new imgpel[frameWidth*frameHeight];
+  imgpel* mc2_b = new imgpel[frameWidth*frameHeight];
 
 # if SI_REFINEMENT
-  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, 0, mvFilePtr);
-  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, 1, mvFilePtr);
+  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, 0, mvFilePtr, c);
+  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, 1, mvFilePtr, c);
 # else
-  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, mvFilePtr);
-  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, mvFilePtr);
+  createSideInfoProcess(imgPrevKey, imgNextKey, mc1_f, mc1_b, mvFilePtr, c);
+  createSideInfoProcess(imgNextKey, imgPrevKey, mc2_b, mc2_f, mvFilePtr, c);
 # endif
 
-  for (int iy = 0; iy < height; iy++)
-    for (int ix = 0; ix < width; ix++) {
-      int iIdx = ix+iy*(width);
+  for (int iy = 0; iy < frameHeight; iy++)
+    for (int ix = 0; ix < frameWidth; ix++) {
+      int iIdx = ix+iy*(frameWidth);
 
-      imgCurrFrame[iIdx] = (mc1_f[iIdx] + mc1_b[iIdx] + mc2_f[iIdx] + mc2_b[iIdx] + 2)/4;
+      imgCurrFrame[iIdx] =
+              (mc1_f[iIdx] + mc1_b[iIdx] + mc2_f[iIdx] + mc2_b[iIdx] + 2)/4;
 
       mc1[iIdx] = (mc1_f[iIdx] + mc2_f[iIdx] + 1)/2;
       mc2[iIdx] = (mc1_b[iIdx] + mc2_b[iIdx] + 1)/2;
     }
 
-  _model->correlationNoiseModeling(mc1, mc2);
+  _model->correlationNoiseModeling(mc1, mc2, c);
 
   delete [] mc1;
   delete [] mc2;
@@ -224,50 +230,63 @@ void SideInformation::createSideInfo(imgpel* imgPrevKey,
 * main process of creating side information
 */
 # if SI_REFINEMENT
-void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, int iMode, std::FILE* mvFilePtr)
+// TODO: ensure that offsets are set correctly
+void SideInformation::createSideInfoProcess(imgpel* imgPrevKey,
+                                            imgpel* imgNextKey,
+                                            imgpel* imgMCForward,
+                                            imgpel* imgMCBackward,
+                                            int iMode,
+                                            std::FILE* mvFilePtr,
+                                            int c)
 # else
-void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, std::FILE* mvFilePtr)
+void SideInformation::createSideInfoProcess(imgpel* imgPrevKey,
+                                            imgpel* imgNextKey,
+                                            imgpel* imgMCForward,
+                                            imgpel* imgMCBackward,
+                                            std::FILE* mvFilePtr,
+                                            int c)
 # endif
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
   int iRange = 16;
 
-  imgpel *imgPrevLowPass  = new imgpel[width*height];
-  imgpel *imgNextLowPass  = new imgpel[width*height];
+  imgpel *imgPrevLowPass  = new imgpel[frameWidth*frameHeight];
+  imgpel *imgNextLowPass  = new imgpel[frameWidth*frameHeight];
 
-  imgpel *imgPrevKeyPadded  = new imgpel[(width+80)*(height+80)];
-  imgpel *imgNextKeyPadded  = new imgpel[(width+80)*(height+80)];
+  imgpel *imgPrevKeyPadded  = new imgpel[(frameWidth+80)*(frameHeight+80)];
+  imgpel *imgNextKeyPadded  = new imgpel[(frameWidth+80)*(frameHeight+80)];
 
-  mvinfo *varCandidate        = new mvinfo[width*height/(iRange*iRange)];
+  mvinfo *varCandidate        = new mvinfo[frameWidth*frameHeight/(iRange*iRange)];
 # if SI_REFINEMENT
-  mvinfo *varCandidate_iter2  = (iMode == 0) ? _varList0 : _varList1;
+  mvinfo *varCandidate_iter2  = (iMode == 0) ? _varList0[c] : _varList1[c];
 # else
-  mvinfo *varCandidate_iter2  = new mvinfo[width*height/(iRange*iRange)*4];
+  mvinfo *varCandidate_iter2  = new mvinfo[frameWidth*frameHeight/(iRange*iRange)*4];
 # endif
 
   //apply lowpass filter to both key frames
-  lowpassFilter(imgPrevKey , imgPrevLowPass, 3);
-  lowpassFilter(imgNextKey , imgNextLowPass, 3);
+  lowpassFilter(imgPrevKey , imgPrevLowPass, 3, c);
+  lowpassFilter(imgNextKey , imgNextLowPass, 3, c);
 
-  forwardME(imgPrevLowPass, imgNextLowPass, varCandidate , iRange);
+  forwardME(imgPrevLowPass, imgNextLowPass, varCandidate , iRange, c);
 
-  pad(imgPrevKey, imgPrevKeyPadded, 40);
-  pad(imgNextKey, imgNextKeyPadded, 40);
+  pad(imgPrevKey, imgPrevKeyPadded, 40, c);
+  pad(imgNextKey, imgNextKeyPadded, 40, c);
 
   for (int iter = 0; iter < 2; iter++)
-    spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate, iRange, 40);
+    spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded,
+                  varCandidate, iRange, 40, c);
 
   char motionVectorBuffer[100];
   int n;
   //copy mv
-  for (int y = 0; y < height; y += iRange)
-    for (int x = 0; x < width; x += iRange) {
-      int iIndex=(x/iRange)+(y/iRange)*(width/iRange);
+  for (int y = 0; y < frameHeight; y += iRange)
+    for (int x = 0; x < frameWidth; x += iRange) {
+      int iIndex=(x/iRange)+(y/iRange)*(frameWidth/iRange);
 
       for (int j = 0; j < iRange; j += iRange/2)
         for (int i = 0; i < iRange; i += iRange/2) {
-          int index2=(x+i)/(iRange/2)+(y+j)/(iRange/2)*(width/(iRange/2));
+          int index2=(x+i)/(iRange/2)+(y+j)/(iRange/2)*(frameWidth/(iRange/2));
 
           varCandidate_iter2[index2].iMvx = varCandidate[iIndex].iMvx;
           varCandidate_iter2[index2].iMvy = varCandidate[iIndex].iMvy;
@@ -282,14 +301,15 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
 # endif
 
   for (int iter = 0; iter < 3; iter++)
-    spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate_iter2, iRange/2, 40);
+    spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate_iter2, iRange/2, 40, c);
 
-  MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward, varCandidate_iter2, NULL, 40, iRange/2, 0);
+  MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward,
+     varCandidate_iter2, NULL, 40, iRange/2, 0, c);
 
   // Write Motion Vectors to file
-  for (int y = 0; y < height; y += iRange/2) {
-    for (int x = 0; x < width; x += iRange/2) {
-      int iIndex=(2*x/iRange)+(2*y/iRange)*(2*width/iRange);
+  for (int y = 0; y < frameHeight; y += iRange/2) {
+    for (int x = 0; x < frameWidth; x += iRange/2) {
+      int iIndex=(2*x/iRange)+(2*y/iRange)*(2*frameWidth/iRange);
       n = sprintf(motionVectorBuffer, "%d, %d, %d, %d\n",
                   varCandidate_iter2[iIndex].iCx,
                   varCandidate_iter2[iIndex].iCy,
@@ -314,10 +334,9 @@ void SideInformation::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextK
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 //get bidirectional motion field based on candidate mvs from previous stage (forward ME)
-void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCandidate,const int iPadSize,const int iRange){
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
+void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext,
+                                 mvinfo* varCandidate, const int iPadSize,
+                                 const int iRange, int c){
   float sad,min_sad;
   float r;
   int iPosx[2]={0};
@@ -327,14 +346,20 @@ void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCa
   int yu,yb,xl,xr;
   int iIdx[4];
   bool bRefineFlag;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
   imgpel *imgPrevBuffer,*imgNextBuffer;
-  imgPrevBuffer=new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
-  imgNextBuffer=new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
+  imgPrevBuffer=new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
+  imgNextBuffer=new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
 
-  bilinear(imgPrev,imgPrevBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
-  bilinear(imgNext,imgNextBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
-  for(int iIndex=0;iIndex<iWidth*iHeight/(iRange*iRange);iIndex++)
+  bilinear(imgPrev, imgPrevBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize,frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
+  bilinear(imgNext, imgNextBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize,0, 0, c);
+  for(int iIndex=0;iIndex<frameWidth*frameHeight/(iRange*iRange);iIndex++)
   {
     bRefineFlag=true;
     for(int i=0;i<4;i++)
@@ -343,10 +368,10 @@ void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCa
     }
     int p_x=varCandidate[iIndex].iCx/iRange;
     int p_y=varCandidate[iIndex].iCy/iRange;
-    if(p_y>0)                iIdx[0] = p_x+(p_y-1)*(iWidth/iRange);
-    if(p_x>0)                iIdx[1] = p_x-1+p_y*(iWidth/iRange);
-    if(p_x<iWidth/iRange-1)  iIdx[2] = p_x+1+p_y*(iWidth/iRange);
-    if(p_y<iHeight/iRange-1) iIdx[3] = p_x+(p_y+1)*(iWidth/iRange);
+    if(p_y>0)                iIdx[0] = p_x+(p_y-1)*(frameWidth/iRange);
+    if(p_x>0)                iIdx[1] = p_x-1+p_y*(frameWidth/iRange);
+    if(p_x<frameWidth/iRange-1)  iIdx[2] = p_x+1+p_y*(frameWidth/iRange);
+    if(p_y<frameHeight/iRange-1) iIdx[3] = p_x+(p_y+1)*(frameWidth/iRange);
 
     for(int i=0;i<4;i++)
     {
@@ -382,8 +407,10 @@ void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCa
             {
               for(int x=0;x<iRange;x++)
               {
-                imgPel[0]=imgPrevBuffer[(iPosx[0]+2*x)+(iPosy[0]+2*y)*2*(2*iPadSize+iWidth)];
-                imgPel[1]=imgNextBuffer[(iPosx[1]+2*x)+(iPosy[1]+2*y)*2*(2*iPadSize+iWidth)];
+                imgPel[0]=imgPrevBuffer[(iPosx[0]+2*x)+(iPosy[0]+2*y)*
+                                         2*(2*iPadSize+frameWidth)];
+                imgPel[1]=imgNextBuffer[(iPosx[1]+2*x)+(iPosy[1]+2*y)*
+                                         2*(2*iPadSize+frameWidth)];
                 sad+=abs(imgPel[0]-imgPel[1]);
               }
             }
@@ -409,11 +436,10 @@ void SideInformation::bidirectME(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCa
 /*
 * Spatial Smoothing
 */
-void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* varCandidate, const int iBlockSize, const int iPadSize)
+void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext,
+                                    mvinfo* varCandidate, const int iBlockSize,
+                                    const int iPadSize, int c)
 {
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
   int iIndex[9];
   double dWeight[9];
   int iSAD[9];
@@ -421,30 +447,47 @@ void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* va
   int iBestMVx=0,iBestMVy=0;
   int iPx[2],iPy[2];
   int iBestIdx=0;
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
   imgpel *imgPrevBuffer,*imgBufferNext;
-  mvinfo *varRefine = new mvinfo[iWidth*iHeight/(iBlockSize*iBlockSize)];
-  imgPrevBuffer     = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
-  imgBufferNext     = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
+  mvinfo *varRefine = new mvinfo[frameWidth*frameHeight/
+                                 (iBlockSize*iBlockSize)];
+  imgPrevBuffer     = new imgpel[(frameWidth+2*iPadSize)*
+                                 (frameHeight+2*iPadSize)*4];
+  imgBufferNext     = new imgpel[(frameWidth+2*iPadSize)*
+                                 (frameHeight+2*iPadSize)*4];
 
-  bilinear(imgPrev,imgPrevBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
-  bilinear(imgNext,imgBufferNext,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
+  bilinear(imgPrev, imgPrevBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
+  bilinear(imgNext, imgBufferNext, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
 
-  for (int j = 0; j < iHeight/iBlockSize; j++)
-    for (int i = 0; i < iWidth/iBlockSize; i++) {
+  for (int j = 0; j < frameHeight/iBlockSize; j++)
+    for (int i = 0; i < frameWidth/iBlockSize; i++) {
       for (int k = 0; k < 9; k++)
         iIndex[k] = -1;
 
-      if(j>0)                           iIndex[0]=i+(j-1)*(iWidth/iBlockSize);
-      if(i>0)                           iIndex[1]=i-1+j*(iWidth/iBlockSize);
-      if(i<iWidth/iBlockSize-1)         iIndex[2]=i+1+j*(iWidth/iBlockSize);
-      if(j<iHeight/iBlockSize-1)        iIndex[3]=i+(j+1)*(iWidth/iBlockSize);
-      if(i>0 && j>0)                    iIndex[5]=(i-1)+(j-1)*(iWidth/iBlockSize);
-      if(i>0 && j<iHeight/iBlockSize-1) iIndex[6]=(i-1)+(j+1)*(iWidth/iBlockSize);
-      if(i<iWidth/iBlockSize-1 && j>0)  iIndex[7]=(i+1)+(j-1)*(iWidth/iBlockSize);
-      if(i<iWidth/iBlockSize-1 && j<iHeight/iBlockSize-1) iIndex[8]=(i+1)+(j+1)*(iWidth/iBlockSize);
+      if(j>0)
+        iIndex[0]=i+(j-1)*(frameWidth/iBlockSize);
+      if(i>0)
+        iIndex[1]=i-1+j*(frameWidth/iBlockSize);
+      if(i<frameWidth/iBlockSize-1)
+        iIndex[2]=i+1+j*(frameWidth/iBlockSize);
+      if(j<frameHeight/iBlockSize-1)
+        iIndex[3]=i+(j+1)*(frameWidth/iBlockSize);
+      if(i>0 && j>0)
+        iIndex[5]=(i-1)+(j-1)*(frameWidth/iBlockSize);
+      if(i>0 && j<frameHeight/iBlockSize-1)
+        iIndex[6]=(i-1)+(j+1)*(frameWidth/iBlockSize);
+      if(i<frameWidth/iBlockSize-1 && j>0)
+        iIndex[7]=(i+1)+(j-1)*(frameWidth/iBlockSize);
+      if(i<frameWidth/iBlockSize-1 && j<frameHeight/iBlockSize-1)
+        iIndex[8]=(i+1)+(j+1)*(frameWidth/iBlockSize);
 
-      iIndex[4]=i+j*(iWidth/iBlockSize);
+      iIndex[4]=i+j*(frameWidth/iBlockSize);
 
       varRefine[iIndex[4]].iMvx = varCandidate[iIndex[4]].iMvx;
       varRefine[iIndex[4]].iMvy = varCandidate[iIndex[4]].iMvy;
@@ -453,15 +496,22 @@ void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* va
 
       for (int k = 0; k < 9; k++) {
         if (iIndex[k] != -1) {
-          iPx[0]=2*(varCandidate[iIndex[4]].iCx+iPadSize)+varCandidate[iIndex[k]].iMvx;
-          iPy[0]=2*(varCandidate[iIndex[4]].iCy+iPadSize)+varCandidate[iIndex[k]].iMvy;
-          iPx[1]=2*(varCandidate[iIndex[4]].iCx+iPadSize)-varCandidate[iIndex[k]].iMvx;
-          iPy[1]=2*(varCandidate[iIndex[4]].iCy+iPadSize)-varCandidate[iIndex[k]].iMvy;
+          iPx[0]=2*(varCandidate[iIndex[4]].iCx+iPadSize)
+                    +varCandidate[iIndex[k]].iMvx;
+          iPy[0]=2*(varCandidate[iIndex[4]].iCy+iPadSize)
+                    +varCandidate[iIndex[k]].iMvy;
+          iPx[1]=2*(varCandidate[iIndex[4]].iCx+iPadSize)
+                    -varCandidate[iIndex[k]].iMvx;
+          iPy[1]=2*(varCandidate[iIndex[4]].iCy+iPadSize)
+                    -varCandidate[iIndex[k]].iMvy;
 
           iSAD[k] = 0;
-          iSAD[k] = calcSAD(imgPrevBuffer+iPx[0]+iPy[0]*2*(2*iPadSize+iWidth),
-                            imgBufferNext+iPx[1]+iPy[1]*2*(2*iPadSize+iWidth),
-                            2*(iWidth+2*iPadSize), 2*(iWidth+2*iPadSize), 2, 2, iBlockSize);
+          iSAD[k] = calcSAD(imgPrevBuffer+iPx[0]
+                            +iPy[0]*2*(2*iPadSize+frameWidth),
+                            imgBufferNext+iPx[1]+iPy[1]*
+                            2*(2*iPadSize+frameWidth),
+                            2*(frameWidth+2*iPadSize),
+                            2*(frameWidth+2*iPadSize), 2, 2, iBlockSize);
         }
       }
 
@@ -474,8 +524,10 @@ void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* va
           for (int im = 0; im < 9; im++) {
             if (il != im && iIndex[im] != -1)
               dWeight[il] += (double)(iSAD[il]/std::max<double>(iSAD[im],0.0001))
-                               *( abs(varCandidate[iIndex[il]].iMvx-varCandidate[iIndex[im]].iMvx)
-                                 +abs(varCandidate[iIndex[il]].iMvy-varCandidate[iIndex[im]].iMvy));
+                               *( abs(varCandidate[iIndex[il]].iMvx
+                                     -varCandidate[iIndex[im]].iMvx)
+                                 +abs(varCandidate[iIndex[il]].iMvy
+                                     -varCandidate[iIndex[im]].iMvy));
           }
         }
         else
@@ -494,7 +546,9 @@ void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* va
       varRefine[iIndex[4]].fDist = (float)iSAD[iBestIdx];
     }
 
-  for (int iIndex = 0; iIndex < iWidth*iHeight/(iBlockSize*iBlockSize); iIndex++) {
+  for (int iIndex = 0;
+       iIndex < frameWidth*frameHeight/(iBlockSize*iBlockSize);
+       iIndex++) {
     varCandidate[iIndex].iMvx = varRefine[iIndex].iMvx;
     varCandidate[iIndex].iMvy = varRefine[iIndex].iMvy;
     varCandidate[iIndex].iCx  = varRefine[iIndex].iCx;
@@ -518,20 +572,26 @@ void SideInformation::spatialSmooth(imgpel* imgPrev, imgpel* imgNext, mvinfo* va
        require two motion vector sets (forward & backward)
 * Param :candidate, candiate2
 */
-void SideInformation::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpel* imgMCf,imgpel* imgMCb, mvinfo* varCandidate, mvinfo* varCandidate2, const int iPadSize, const int iRange, const int iMode){
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
+void SideInformation::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst,
+                         imgpel* imgMCf, imgpel* imgMCb, mvinfo* varCandidate,
+                         mvinfo* varCandidate2, const int iPadSize,
+                         const int iRange, const int iMode, int c){
   int px[2],py[2];
   imgpel pel[2];
   imgpel *imgPrevBuffer,*imgNextBuffer;
-  imgPrevBuffer=new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
-  imgNextBuffer=new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
+  int frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  imgPrevBuffer=new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
+  imgNextBuffer=new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
 
-  bilinear(imgPrev,imgPrevBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
-  bilinear(imgNext,imgNextBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
+  bilinear(imgPrev, imgPrevBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
+  bilinear(imgNext, imgNextBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
 
-  for(int iIndex=0;iIndex<iWidth*iHeight/(iRange*iRange);iIndex++)
+  for(int iIndex=0;iIndex<frameWidth*frameHeight/(iRange*iRange);iIndex++)
   {
 
     for(int j=0;j<iRange;j++)
@@ -551,10 +611,11 @@ void SideInformation::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpe
           px[1]=2*(varCandidate2[iIndex].iCx+i+iPadSize)+varCandidate2[iIndex].iMvx;
           py[1]=2*(varCandidate2[iIndex].iCy+j+iPadSize)+varCandidate2[iIndex].iMvy;
         }
-        pel[0]=imgPrevBuffer[px[0]+py[0]*2*(2*iPadSize+iWidth)];
-        pel[1]=imgNextBuffer[px[1]+py[1]*2*(2*iPadSize+iWidth)];
+        pel[0]=imgPrevBuffer[px[0]+py[0]*2*(2*iPadSize+frameWidth)];
+        pel[1]=imgNextBuffer[px[1]+py[1]*2*(2*iPadSize+frameWidth)];
 
-        int pos=(varCandidate[iIndex].iCx+i)+(varCandidate[iIndex].iCy+j)*(iWidth);
+        int pos=(varCandidate[iIndex].iCx+i)+(varCandidate[iIndex].iCy+j)
+                 *(frameWidth);
         if(imgDst!=NULL)
         {
           imgDst[pos] = (pel[0]+pel[1]+1)/2;
@@ -569,13 +630,12 @@ void SideInformation::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpe
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::pad(imgpel* src, imgpel* dst, const int iPadSize)
+void SideInformation::pad(imgpel* src, imgpel* dst, const int iPadSize, int c)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
-
-  int paddedWidth  = width  + 2*iPadSize;
-  int paddedHeight = height + 2*iPadSize;
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int paddedWidth  = frameWidth  + 2*iPadSize;
+  int paddedHeight = frameHeight + 2*iPadSize;
 
   // Upper left
   for (int y = 0; y < iPadSize; y++)
@@ -584,49 +644,51 @@ void SideInformation::pad(imgpel* src, imgpel* dst, const int iPadSize)
 
   // Upper
   for (int y = 0; y < iPadSize; y++)
-    for (int x = iPadSize; x < iPadSize+width; x++)
+    for (int x = iPadSize; x < iPadSize+frameWidth; x++)
       dst[x+y*paddedWidth] = src[x-iPadSize];
 
   // Upper right
   for (int y = 0; y < iPadSize; y++)
-    for (int x = iPadSize+width; x < paddedWidth; x++)
-      dst[x+y*paddedWidth] = src[width-1];
+    for (int x = iPadSize+frameWidth; x < paddedWidth; x++)
+      dst[x+y*paddedWidth] = src[frameWidth-1];
 
   // Left
-  for (int y = iPadSize; y < iPadSize+height; y++)
+  for (int y = iPadSize; y < iPadSize+frameHeight; y++)
     for (int x = 0; x < iPadSize; x++)
-      dst[x+y*paddedWidth] = src[(y-iPadSize)*width];
+      dst[x+y*paddedWidth] = src[(y-iPadSize)*frameWidth];
 
   // Middle
-  for (int y = iPadSize; y < iPadSize+height; y++)
-    for (int x = iPadSize; x < iPadSize+width; x++)
-      dst[x+y*paddedWidth] = src[x-iPadSize+(y-iPadSize)*width];
+  for (int y = iPadSize; y < iPadSize+frameHeight; y++)
+    for (int x = iPadSize; x < iPadSize+frameWidth; x++)
+      dst[x+y*paddedWidth] = src[x-iPadSize+(y-iPadSize)*frameWidth];
 
   // Right
-  for (int y = iPadSize; y < iPadSize+height; y++)
-    for (int x = iPadSize+width; x < paddedWidth; x++)
-      dst[x+y*paddedWidth] = src[(y-iPadSize+1)*width-1];
+  for (int y = iPadSize; y < iPadSize+frameHeight; y++)
+    for (int x = iPadSize+frameWidth; x < paddedWidth; x++)
+      dst[x+y*paddedWidth] = src[(y-iPadSize+1)*frameWidth-1];
 
   // Bottom left
-  for (int y = iPadSize+height; y < paddedHeight; y++)
+  for (int y = iPadSize+frameHeight; y < paddedHeight; y++)
     for (int x = 0; x < iPadSize; x++)
-      dst[x+y*paddedWidth] = src[(height-1)*width];
+      dst[x+y*paddedWidth] = src[(frameHeight-1)*frameWidth];
 
   // Bottom
-  for (int y = iPadSize+height; y < paddedHeight; y++)
-    for (int x = iPadSize; x < iPadSize+width; x++)
-      dst[x+y*paddedWidth] = src[(x-iPadSize)+(height-1)*width];
+  for (int y = iPadSize+frameHeight; y < paddedHeight; y++)
+    for (int x = iPadSize; x < iPadSize+frameWidth; x++)
+      dst[x+y*paddedWidth] = src[(x-iPadSize)+(frameHeight-1)*frameWidth];
 
   // Bottom right
-  for (int y = iPadSize+height; y < paddedHeight; y++)
-    for (int x = iPadSize+width; x < paddedWidth; x++)
-      dst[x+y*paddedWidth] = src[height*width-1];
-
+  for (int y = iPadSize+frameHeight; y < paddedHeight; y++)
+    for (int x = iPadSize+frameWidth; x < paddedWidth; x++)
+      dst[x+y*paddedWidth] = src[frameHeight*frameWidth-1];
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void bilinear(imgpel *source,imgpel *buffer,int buffer_w,int buffer_h,int picwidth,int picheight,int px,int py){
+void bilinear(imgpel *source, imgpel *buffer, int buffer_w, int buffer_h,
+              int picwidth, int picheight, int px, int py, int c){
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
   for(int j=0;j<buffer_h;j++)
     for(int i=0;i<buffer_w;i++)
     {
@@ -660,20 +722,22 @@ void bilinear(imgpel *source,imgpel *buffer,int buffer_w,int buffer_h,int picwid
 #if RESIDUAL_CODING
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::getResidualFrame(imgpel* bRefFrame, imgpel* fRefFrame, imgpel* currFrame, int* residue, int* dirList)
+void SideInformation::getResidualFrame(imgpel* bRefFrame, imgpel* fRefFrame,
+                                       imgpel* currFrame, int* residue,
+                                       int* dirList, int c)
 {
-  int width  = _codec->getFrameWidth();
-  int height = _codec->getFrameHeight();
   int iBlock = 8;
   int blockCount = 0;
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
-  for (int j = 0; j < height; j += iBlock)
-    for (int i = 0; i < width; i += iBlock) {
+  for (int j = 0; j < frameHeight; j += iBlock)
+    for (int i = 0; i < frameWidth; i += iBlock) {
       imgpel* refFrame = (dirList[blockCount] == 0) ? bRefFrame : fRefFrame;
 
       for (int y = 0; y < iBlock; y++)
         for (int x = 0; x < iBlock; x++) {
-          int idx = (i+x) + (j+y)*width;
+          int idx = (i+x) + (j+y)*frameWidth;
 
           residue[idx] = currFrame[idx] - refFrame[idx];
         }
@@ -684,24 +748,25 @@ void SideInformation::getResidualFrame(imgpel* bRefFrame, imgpel* fRefFrame, img
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::getRecFrame(imgpel *imgFReference,imgpel *imgBReference,int *iResidue,imgpel *imgRec,int *iList)
+void SideInformation::getRecFrame(imgpel *imgFReference, imgpel *imgBReference,
+                                  int *iResidue, imgpel *imgRec,
+                                  int *iList, int c)
 {
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
   int iBlock = 8;
   int iIndex=0;
   int iPos;
   imgpel* imgRef;
-  for(int j=0;j<iHeight;j+=iBlock)
-    for(int i=0;i<iWidth;i+=iBlock)
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  for(int j=0;j<frameHeight;j+=iBlock)
+    for(int i=0;i<frameWidth;i+=iBlock)
     {
       imgRef = (iList[iIndex]==0)? imgFReference:imgBReference;
 
       for(int y=0;y<iBlock;y++)
         for(int x=0;x<iBlock;x++)
         {
-          iPos = (i+x) + (j+y)*iWidth;
+          iPos = (i+x) + (j+y)*frameWidth;
           imgRec[iPos]=Clip(0,255,iResidue[iPos]+imgRef[iPos]);
         }
       iIndex++;
@@ -713,22 +778,21 @@ void SideInformation::getRecFrame(imgpel *imgFReference,imgpel *imgBReference,in
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* skipMask)
+void SideInformation::getSkippedRecFrame(imgpel* imgPrevKey, imgpel* imgWZFrame,
+                                         int* skipMask, int c)
 {
-  int iWidth,iHeight;
-  iWidth  = _codec->getFrameWidth();
-  iHeight = _codec->getFrameHeight();
-
-  for(int ij=0;ij<iHeight;ij+=4)
-    for(int ii=0;ii<iWidth;ii+=4)
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  for(int ij=0;ij<frameHeight;ij+=4)
+    for(int ii=0;ii<frameWidth;ii+=4)
     {
-      int idx= ii/4 + ij/4*(iWidth/4);
+      int idx= ii/4 + ij/4*(frameWidth/4);
       if(skipMask[idx]==1)//skip
       {
         for(int iy=0;iy<4;iy++)
           for(int ix=0;ix<4;ix++)
           {
-            imgWZFrame[(ii+ix)+(ij+iy)*iWidth]=imgPrevKey[(ii+ix)+(ij+iy)*iWidth];
+            imgWZFrame[(ii+ix)+(ij+iy)*frameWidth]=imgPrevKey[(ii+ix)+(ij+iy)*frameWidth];
           }
       }
     }
@@ -737,69 +801,79 @@ void SideInformation::getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame,
 #if SI_REFINEMENT
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::getRefinedSideInfo(imgpel *imgPrevKey,imgpel *imgNextKey,imgpel *imgCurrFrame,imgpel* imgTmpRec,imgpel *imgRefined,int iMode)
+void SideInformation::getRefinedSideInfo(imgpel *imgPrevKey,
+                                         imgpel *imgNextKey,
+                                         imgpel *imgCurrFrame,
+                                         imgpel* imgTmpRec,
+                                         imgpel *imgRefined,
+                                         int iMode, int c)
 {
-  int iWidth,iHeight;
-  iWidth           = _codec->getFrameWidth();
-  iHeight          = _codec->getFrameHeight();
   int iBlock       = 8;
   int iPadSize     = 40;
-  int iStripe      = iWidth+2*iPadSize;
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int iStripe      = frameWidth+2*iPadSize;
 
   imgpel *imgForward,*imgBackward;
   imgpel *imgPrevBuffer,*imgNextBuffer,*imgPrevPadded,*imgNextPadded;
-  imgForward    = new imgpel[iWidth*iHeight];
-  imgBackward   = new imgpel[iWidth*iHeight];
-  imgPrevPadded = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)];
-  imgNextPadded = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)];
+  imgForward    = new imgpel[frameWidth*frameHeight];
+  imgBackward   = new imgpel[frameWidth*frameHeight];
+  imgPrevPadded = new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)];
+  imgNextPadded = new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)];
 
-  mvinfo * mvList0 = new mvinfo[iWidth*iHeight/16];
-  mvinfo * mvList1 = new mvinfo[iWidth*iHeight/16];
+  mvinfo * mvList0 = new mvinfo[frameWidth*frameHeight/16];
+  mvinfo * mvList1 = new mvinfo[frameWidth*frameHeight/16];
 
-  pad(imgPrevKey,imgPrevPadded,iPadSize);
-  pad(imgNextKey,imgNextPadded,iPadSize);
+  pad(imgPrevKey, imgPrevPadded, iPadSize, c);
+  pad(imgNextKey, imgNextPadded, iPadSize, c);
 
-  imgPrevBuffer = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
-  imgNextBuffer = new imgpel[(iWidth+2*iPadSize)*(iHeight+2*iPadSize)*4];
+  imgPrevBuffer = new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
+  imgNextBuffer = new imgpel[(frameWidth+2*iPadSize)*(frameHeight+2*iPadSize)*4];
 
-  bilinear(imgPrevPadded,imgPrevBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
-  bilinear(imgNextPadded,imgNextBuffer,iWidth+2*iPadSize,iHeight+2*iPadSize,iWidth+2*iPadSize,iHeight+2*iPadSize,0,0);
+  bilinear(imgPrevPadded, imgPrevBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
+  bilinear(imgNextPadded, imgNextBuffer, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, frameWidth+2*iPadSize,
+           frameHeight+2*iPadSize, 0, 0, c);
 
-  memset(imgForward,0x0,iWidth*iHeight);
-  memset(imgBackward,0x0,iWidth*iHeight);
+  memset(imgForward,0x0,frameWidth*frameHeight);
+  memset(imgBackward,0x0,frameWidth*frameHeight);
 
-  for(int y=0;y<iHeight;y+=iBlock)
-    for(int x=0;x<iWidth;x+=iBlock)
+  for(int y=0;y<frameHeight;y+=iBlock)
+    for(int x=0;x<frameWidth;x+=iBlock)
     {
-      int iIndex=(x/iBlock)+(y/iBlock)*(iWidth/iBlock);
+      int iIndex=(x/iBlock)+(y/iBlock)*(frameWidth/iBlock);
       for(int j=0;j<iBlock;j+=iBlock/2)
         for(int i=0;i<iBlock;i+=iBlock/2)
         {
-          int index2=(x+i)/(iBlock/2)+(y+j)/(iBlock/2)*(iWidth/(iBlock/2));
-          mvList0[index2].iMvx = _varList0[iIndex].iMvx;
-          mvList0[index2].iMvy = _varList0[iIndex].iMvy;
+          int index2=(x+i)/(iBlock/2)+(y+j)/(iBlock/2)*(frameWidth/(iBlock/2));
+          mvList0[index2].iMvx = _varList0[c][iIndex].iMvx;
+          mvList0[index2].iMvy = _varList0[c][iIndex].iMvy;
           mvList0[index2].iCx  = x+i;
           mvList0[index2].iCy  = y+j;
 
-          mvList1[index2].iMvx = _varList1[iIndex].iMvx;
-          mvList1[index2].iMvy = _varList1[iIndex].iMvy;
+          mvList1[index2].iMvx = _varList1[c][iIndex].iMvx;
+          mvList1[index2].iMvy = _varList1[c][iIndex].iMvy;
           mvList1[index2].iCx  = x+i;
           mvList1[index2].iCy  = y+j;
         }
     }
 
-  memset(_refinedMask,0x00,4*(iWidth*iHeight/(16)));
+  memset(_refinedMask,0x00,4*(frameWidth*frameHeight/(16)));
 
-  getRefinedSideInfoProcess(imgPrevBuffer,imgTmpRec,imgCurrFrame,imgForward,mvList0,iMode);
-  getRefinedSideInfoProcess(imgNextBuffer,imgTmpRec,imgCurrFrame,imgBackward,mvList1,iMode);
+  getRefinedSideInfoProcess(imgPrevBuffer, imgTmpRec, imgCurrFrame,
+                            imgForward, mvList0, iMode, c);
+  getRefinedSideInfoProcess(imgNextBuffer, imgTmpRec, imgCurrFrame,
+                            imgBackward, mvList1, iMode, c);
 
-  for(int iy=0;iy<iHeight;iy++)
-    for(int ix=0;ix<iWidth;ix++)
+  for(int iy=0;iy<frameHeight;iy++)
+    for(int ix=0;ix<frameWidth;ix++)
     {
-      int iIdx = ix+iy*(iWidth);
+      int iIdx = ix+iy*(frameWidth);
       imgRefined[iIdx]=(imgForward[iIdx]+imgBackward[iIdx]+1)/2;
     }
-  _model->updateCNM(imgForward,imgBackward,_refinedMask);
+  _model->updateCNM(imgForward,imgBackward,_refinedMask[c],c);
 
   delete [] mvList0;
   delete [] mvList1;
@@ -828,23 +902,27 @@ float getDCValue(imgpel* img,int iStep,int iStripe,int iBlock)
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* imgTmpRec,imgpel* imgSI,imgpel* imgRefined,mvinfo* varList,int iMode)
+void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,
+                                                imgpel* imgTmpRec,
+                                                imgpel* imgSI,
+                                                imgpel* imgRefined,
+                                                mvinfo* varList,
+                                                int iMode, int c)
 {
-  int iWidth,iHeight;
-  iWidth           = _codec->getFrameWidth();
-  iHeight          = _codec->getFrameHeight();
   int iBlock       = 4;
   int x,y,i,j;
   int iCx,iCy;
   int iPox,iPoy;
   int iPadSize     = 40;
   int iSearchRange = 8;
-  int iStripe      = iWidth+2*iPadSize;
+  int   frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int iStripe      = frameWidth+2*iPadSize;
   float fDist      = 0.0;
   float fSIDist    = 0.0;
   float fThreshold = 3.0;
   float fRefinedTH;
-  float fRefinedTH_dc = (float)2.0*_codec->getQuantStep(0, 0);
+  float fRefinedTH_dc = (float)2.0*_codec->getQuantStep(0, 0, c);
   float fRefinedTH_ac = 100.0;
 
   fRefinedTH = (!iMode)?fRefinedTH_dc:fRefinedTH_ac;
@@ -856,7 +934,7 @@ void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* im
   float                 fTmp;
 
   //do ME again to find the better MV
-  for(int iIndex=0;iIndex<(iHeight*iWidth)/(iBlock*iBlock);iIndex++)
+  for(int iIndex=0;iIndex<(frameHeight*frameWidth)/(iBlock*iBlock);iIndex++)
     {
       varMVList.clear();
       varWeight.clear();
@@ -866,16 +944,16 @@ void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* im
       iCx = varList[iIndex].iCx;
       iCy = varList[iIndex].iCy;
 
-      float fRecDC = getDCValue(imgTmpRec+iCx+iCy*iWidth,1,iWidth,iBlock);
+      float fRecDC = getDCValue(imgTmpRec+iCx+iCy*frameWidth,1,frameWidth,iBlock);
       float fDCValue;
       if(iMode==0)//DC
       {
-        fDCValue = getDCValue(imgSI+iCx+iCy*iWidth,1,iWidth,iBlock);
+        fDCValue = getDCValue(imgSI+iCx+iCy*frameWidth,1,frameWidth,iBlock);
         fSIDist  = fabs(fDCValue - fRecDC);
       }
       else
       {
-        fSIDist  = (float)calcDist((imgSI+iCx+iCy*iWidth),(imgTmpRec+iCx+iCy*iWidth),iWidth,iWidth,1,1,iBlock);
+        fSIDist  = (float)calcDist((imgSI+iCx+iCy*frameWidth),(imgTmpRec+iCx+iCy*frameWidth),frameWidth,frameWidth,1,1,iBlock);
       }
       if(fSIDist>fRefinedTH)
       {
@@ -891,7 +969,7 @@ void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* im
             }
             else
             {
-              fDist  = (float)calcDist((imgPrevBuffer+(x+i)+(y+j)*iStripe*2),(imgTmpRec+iCx+iCy*iWidth),iStripe*2,iWidth,2,1,iBlock);
+              fDist  = (float)calcDist((imgPrevBuffer+(x+i)+(y+j)*iStripe*2),(imgTmpRec+iCx+iCy*frameWidth),iStripe*2,frameWidth,2,1,iBlock);
             }
 
             if(pos==0 && iMode!=0) fThreshold = fDist;
@@ -917,11 +995,11 @@ void SideInformation::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* im
               iPoy = y + 2*ij + varMVList[iList].second;
               fTmp += (*(imgPrevBuffer + iPox + iPoy*iStripe*2))*varWeight[iList];
             }
-            imgRefined[(iCx+ii)+(iCy+ij)*iWidth] = (imgpel) (fTmp / fWeightSum);
+            imgRefined[(iCx+ii)+(iCy+ij)*frameWidth] = (imgpel) (fTmp / fWeightSum);
           }
           else
           {
-            imgRefined[(iCx+ii)+(iCy+ij)*iWidth] = imgSI[(iCx+ii)+(iCy+ij)*iWidth];
+            imgRefined[(iCx+ii)+(iCy+ij)*frameWidth] = imgSI[(iCx+ii)+(iCy+ij)*frameWidth];
           }
         }
 

@@ -15,25 +15,25 @@ public:
 
   // DCT
   template <typename T, typename U>
-  void dctTransform(T* src, U* dst);
+  void dctTransform(T* src, U* dst, int c);
 
-  void dctTransform(float* src, float* dst);
+  void dctTransform(float* src, float* dst, int c);
 
   template <typename T, typename U>
   void dct4x4(T* src, U* dst, int x, int y, int c);
 
   // Inverse DCT
   template <typename T>
-  void invDctTransform(int* src, T* dst);
+  void invDctTransform(int* src, T* dst, int c);
 
   // Quantization
-  void quantization(int* src, int* dst);
+  void quantization(int* src, int* dst, int c);
 
   // Inverse quantization
 # if SI_REFINEMENT
-  void invQuantization(int* src, int* dst, int* si, int offsetX, int offsetY);
+  void invQuantization(int* src, int* dst, int* si, int offsetX, int offsetY, int c);
 # else
-  void invQuantization(int* src, int* dst, int* si);
+  void invQuantization(int* src, int* dst, int* si, int c);
 # endif
 
 private:

@@ -50,6 +50,14 @@ public:
     return _manager;
   };
 
+  ~FileManager()
+  {
+    for (auto& x : _fileMap)
+    {
+      x.second->closeFile();
+    }
+  };
+
   File* addFile(const string& name, const string& fileName)
   {
     File* file = new File(fileName);

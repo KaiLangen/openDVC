@@ -12,6 +12,7 @@
 #include "sideInformation.h"
 #include "transform.h"
 #include "corrModel.h"
+#include "config.h"
 #include "time.h"
 #include "cavlcDec.h"
 #include "frameBuffer.h"
@@ -28,15 +29,22 @@ Decoder::Decoder(char **argv)
   _files = FileManager::getManager();
 
   string wzFileName = argv[1];
-  string recFileName = wzFileName.substr(0, wzFileName.find(".bin")) + ".y";
+  string recFileName = wzFileName.substr(0, wzFileName.find(".bin")) + ".yuv";
 
-  _files->addFile("wz",     argv[1])->openFile("rb");
   _files->addFile("key",    argv[2])->openFile("rb");
   _files->addFile("origin", argv[3])->openFile("rb");
   _files->addFile("rec",    recFileName.c_str())->openFile("wb");
   _files->addFile("mv",     "mv.csv")->openFile("w");
 
-  _bs = new Bitstream(1024, _files->getFile("wz")->getFileHandle());
+  char chan[] = "yuv";
+  for(int c = 0; c < NCHANS; c++) {
+    string wzChanFile = wzFileName.substr(0, wzFileName.find(".bin"))
+                         + "_" + chan[c] + ".bin";
+    stringstream wzKey; 
+    wzKey << "wz_" << chan[c];
+    _files->addFile(wzKey.str(), wzChanFile)->openFile("rb");
+    _bs[c] = new Bitstream(1024, _files->getFile(wzKey.str())->getFileHandle());
+  }
 
   decodeWzHeader();
 
@@ -47,79 +55,93 @@ Decoder::Decoder(char **argv)
 // -----------------------------------------------------------------------------
 void Decoder::initialize()
 {
-  _frameSize        = _frameWidth * _frameHeight;
-  _bitPlaneLength   = _frameSize / 16;
-  _gop              = 1 << _gopLevel;
+  _gop                   = 1 << _gopLevel;
+  _fb                    = new FrameBuffer(_gop);
+  _trans                 = new Transform(this);
+  _model                 = new CorrModel(this, _trans);
+  _si                    = new SideInformation(this, _model);
+  _cavlc                 = new CavlcDec(this, 4);
+  _sigma                 = new double[NBANDS];
 
-  _numChnCodeBands  = 16;
 
-  _dParity          = new double[_bitPlaneLength * BitPlaneNum[_qp]];
+  _dParity[0]            = new double[Y_BPLEN * BitPlaneNum[_qp]];
+  _dParity[1]            = new double[UV_BPLEN * BitPlaneNum[_qp]];
+  _dParity[2]            = new double[UV_BPLEN * BitPlaneNum[_qp]];
+  _alpha[0]              = new double[Y_FSIZE];
+  _alpha[1]              = new double[UV_FSIZE];
+  _alpha[2]              = new double[UV_FSIZE];
+  _skipMask[0]           = new int[Y_BPLEN];
+  _skipMask[1]           = new int[UV_BPLEN];
+  _skipMask[2]           = new int[UV_BPLEN];
 
 # if HARDWARE_LDPC
-  if (_bitPlaneLength == 6336)
-    _crc            = new unsigned char[BitPlaneNum[_qp] * 4];
-  else
-    _crc            = new unsigned char[BitPlaneNum[_qp]];
+  _crc[0]                = new unsigned char[BitPlaneNum[_qp] * 4];
 # else
-  _crc              = new unsigned char[BitPlaneNum[_qp]];
+  _crc[0]                = new unsigned char[BitPlaneNum[_qp]];
+  _ldpca_cif             = new LdpcaDec("ldpca/6336_regDeg3.lad",
+                                        "ldpca/Inverse_Matrix_H_Reg6336.dat",
+                                        this);
 # endif
+  _crc[1]                = new unsigned char[BitPlaneNum[_qp]];
+  _crc[2]                = new unsigned char[BitPlaneNum[_qp]];
+  _ldpca                 = new LdpcaDec("ldpca/1584_regDeg3.lad",
+                                        "ldpca/Inverse_Matrix_H_Reg1584.dat",
+                                        this);
 
-  _average          = new double[16];
-  _alpha            = new double[_frameSize];
-  _sigma            = new double[16];
+  for (int c = 0; c < NCHANS; c++) {
+    _numChnCodeBands[c]  = NBANDS;
+    _average[c]          = new double[NBANDS];
 
 # if RESIDUAL_CODING
-  _rcList           = new int[_frameSize/64];
-
-  for (int i = 0; i < _frameSize/64; i++)
-    _rcList[i] = 0;
+  _rcList[c]             = new int[FSIZE/64];
+  memset(_rcList[c], 0, FSIZE/64);
 # endif
-
-  _skipMask         = new int[_bitPlaneLength];
-
-  _fb = new FrameBuffer(_frameWidth, _frameHeight, _gop);
-
-  _trans = new Transform(this);
-
-  _model = new CorrModel(this, _trans);
-  _si    = new SideInformation(this, _model);
-
-  _cavlc = new CavlcDec(this, 4);
+  }
 
   motionSearchInit(64);
 
-  // Initialize LDPC
-  string ladderFile;
+}
 
-# if HARDWARE_LDPC
-  ladderFile = "ldpca/1584_regDeg3.lad";
-# else
-  if (_frameWidth == 352 && _frameHeight == 288)
-    ladderFile = "ldpca/6336_regDeg3.lad";
-  else
-    ladderFile = "ldpca/1584_regDeg3.lad";
-# endif
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+Decoder::~Decoder()
+{
+  delete [] _sigma;
+  delete _fb;
+  delete _trans;
+  delete _cavlc;
+  delete _ldpca;
+# if !HARDWARE_LDPC
+  delete _ldpca_cif;
+#endif
 
-  _ldpca = new LdpcaDec(ladderFile, this);
+  for (int c = 0; c < NCHANS; c++) {
+    delete [] _parity[c];
+    delete [] _alpha[c];
+// TODO: fix this! _crc pointers are incremented, so unable to free. 
+//                 Make an extra set of pointers, or use indices instead.
+//                 delete _skipMask gets "double free or corruption" error.
+//                 Investigate.
+//    delete [] _crc[c];
+//    delete [] _skipMask[c];
+    delete [] _average[c];
+    delete _bs[c];
+  }
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 void Decoder::decodeWzHeader()
 {
-  _frameWidth   = _bs->read(8) * 16;
-  _frameHeight  = _bs->read(8) * 16;
-  _qp           = _bs->read(8);
-  _numFrames    = _bs->read(16);
-  _gopLevel     = _bs->read(2);
+  _qp           = _bs[0]->read(8);
+  _numFrames    = _bs[0]->read(16);
+  _gopLevel     = _bs[0]->read(2);
 
   cout << "--------------------------------------------------" << endl;
   cout << "WZ frame parameters" << endl;
   cout << "--------------------------------------------------" << endl;
-  cout << "Width:  " << _frameWidth << endl;
-  cout << "Height: " << _frameHeight << endl;
-  cout << "Frames: " << _numFrames << endl;
   cout << "QP:     " << _qp << endl;
+  cout << "Frames: " << _numFrames << endl;
   cout << "GOP:    " << (1<<_gopLevel) << endl;
   cout << "--------------------------------------------------" << endl << endl;
 }
@@ -133,33 +155,39 @@ void Decoder::decodeWZframe()
 
   clock_t timeStart, timeEnd;
   double cpuTime;
-
-  imgpel* oriCurrFrame = _fb->getCurrFrame();
-  imgpel* imgSI      = _fb->getSideInfoFrame();
-  imgpel* imgRefinedSI = new imgpel[_frameSize];
-  imgpel* keyColour = new imgpel[_frameSize>>1];
-
-  int* iDCT         = _fb->getDctFrame();
-  int* iDCTQ        = _fb->getQuantDctFrame();
-  int* iDecoded     = _fb->getDecFrame();
-  int* iDecodedInvQ = _fb->getInvQuantDecFrame();
+  int frameSize, bplen;
 
 #if RESIDUAL_CODING
-  int* iDCTBuffer   = new int [_frameSize];
-  int* iDCTResidual = new int [_frameSize];
+  int* iDCTBuffer      = new int [FSIZE];
+  int* iDCTResidual    = new int [FSIZE];
 #endif
+  imgpel* oriCurrFrame = _fb->getCurrFrame();
+  imgpel* imgSI        = _fb->getSideInfoFrame();
+
+  int* iDCT            = _fb->getDctFrame();
+  int* iDCTQ           = _fb->getQuantDctFrame();
+  int* iDecoded        = _fb->getDecFrame();
+  int* iDecodedInvQ    = _fb->getInvQuantDecFrame();
+
+#if SI_REFINEMENT
+  imgpel* imgRefinedSI[NCHANS];
+  for (int c = 0; c < NCHANS; c++) {
+    frameSize = (c == 0) ? Y_FSIZE : UV_FSIZE;
+    imgRefinedSI[c]    = new imgpel[frameSize];
+  }
+#endif // SI_REFINEMENT
 
   int x,y;
-  double totalrate=0;
+  double totalrate[NCHANS] = {0., 0., 0.};
   double dMVrate=0;
 
   double dKeyCodingRate=0;
   double dKeyPSNR=0;
 
-  FILE* fReadPtr    = _files->getFile("origin")->getFileHandle();
-  FILE* fWritePtr   = _files->getFile("rec")->getFileHandle();
-  FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
-  FILE* mvFilePtr = _files->getFile("mv")->getFileHandle();
+  FILE* fReadPtr       = _files->getFile("origin")->getFileHandle();
+  FILE* fWritePtr      = _files->getFile("rec")->getFileHandle();
+  FILE* fKeyReadPtr    = _files->getFile("key")->getFileHandle();
+  FILE* mvFilePtr      = _files->getFile("mv")->getFileHandle();
 
   parseKeyStat("stats.dat", dKeyCodingRate, dKeyPSNR, _keyQp);
 
@@ -169,13 +197,12 @@ void Decoder::decodeWZframe()
   // ---------------------------------------------------------------------------
   for (int keyFrameNo = 0; keyFrameNo < (_numFrames-1)/_gop; keyFrameNo++) {
     // Read previous key frame
-    fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
-    fread(keyColour, _frameSize>>1, 1, fKeyReadPtr);
+    fseek(fKeyReadPtr, (keyFrameNo)*FSIZE, SEEK_SET);
+    fread(_fb->getPrevFrame(), FSIZE, 1, fKeyReadPtr);
 
     // Read next key frame
-    fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
+    fseek(fKeyReadPtr, (keyFrameNo+1)*FSIZE, SEEK_SET);
+    fread(_fb->getNextFrame(), FSIZE, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
       int frameStep = _gop / ((il+1)<<1);
@@ -188,8 +215,8 @@ void Decoder::decodeWZframe()
         cout << "Decoding frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
 
         // Read current frame from the original file
-        fseek(fReadPtr, (3*wzFrameNo*_frameSize)>>1, SEEK_SET);
-        fread(oriCurrFrame, _frameSize, 1, fReadPtr);
+        fseek(fReadPtr, wzFrameNo * FSIZE, SEEK_SET);
+        fread(oriCurrFrame, FSIZE, 1, fReadPtr);
 
         // Setup frame pointers within the GOP
         int prevIdx = idx - frameStep;
@@ -204,155 +231,227 @@ void Decoder::decodeWZframe()
         imgpel* nextKeyFrame  = _fb->getNextFrame();
 
         // ---------------------------------------------------------------------
-        // STAGE 1 - Create side information
+        // Perform the following stages for each channel
         // ---------------------------------------------------------------------
-        _si->createSideInfo(prevFrame, nextFrame, imgSI, mvFilePtr);
+        for (int c = 0; c < NCHANS; c++) {
+          int  frameSize = (c == 0) ? Y_FSIZE : UV_FSIZE;
+          // ---------------------------------------------------------------------
+          // STAGE 1 - Create side information
+          // ---------------------------------------------------------------------
+          _si->createSideInfo(CHOFFSET(prevFrame,c), CHOFFSET(nextFrame,c),
+                             CHOFFSET(imgSI,c), mvFilePtr, c);
 
-        // ---------------------------------------------------------------------
-        // STAGE 2 -
-        // ---------------------------------------------------------------------
-        int tmp = getSyndromeData();
+          // ---------------------------------------------------------------------
+          // STAGE 2 -
+          // ---------------------------------------------------------------------
+          int tmp = getSyndromeData(c);
 
-        //cout << _numChnCodeBands << endl;
+          double dTotalRate = (double)tmp/1024/8;
 
-        double dTotalRate = (double)tmp/1024/8;
+          _trans->dctTransform(CHOFFSET(imgSI,c), CHOFFSET(iDCT,c), c);
 
-        _trans->dctTransform(imgSI, iDCT);
-
-        memset(iDecoded, 0, _frameSize*4);
-        memset(iDecodedInvQ, 0, _frameSize*4);
+          memset(CHOFFSET(iDecoded,c), 0, frameSize*sizeof(int));
+          memset(CHOFFSET(iDecodedInvQ,c), 0, frameSize*sizeof(int));
 
 # if RESIDUAL_CODING
-        _si->getResidualFrame(prevKeyFrame, nextKeyFrame, imgSI, iDCTBuffer, _rcList);
+          _si->getResidualFrame(CHOFFSET(prevKeyFrame,c),
+                                CHOFFSET(nextKeyFrame,c),
+                                CHOFFSET(imgSI,c),
+                                CHOFFSET(iDCTBuffer,c), _rcList[c], c);
 
-        _trans->dctTransform(iDCTBuffer, iDCTResidual);
-        _trans->quantization(iDCTResidual, iDCTQ);
+          _trans->dctTransform(CHOFFSET(iDCTBuffer,c),
+                               CHOFFSET(iDCTResidual,c), c);
+          _trans->quantization(CHOFFSET(iDCTResidual,c),
+                               CHOFFSET(iDCTQ,c), c);
 
-        int iOffset = 0;
-        int iDC;
+          int iOffset = 0;
+          int iDC;
 
 #   if SI_REFINEMENT
-        memcpy(iDecodedInvQ, iDCTResidual, 4*_frameSize);
+          memcpy(CHOFFSET(iDecodedInvQ,c),
+                 CHOFFSET(iDCTResidual,c), frameSize*sizeof(int));
 #   endif
 
-        for (int i = 0; i < 16; i++) {
-          x = ScanOrder[i][0];
-          y = ScanOrder[i][1];
+          for (int i = 0; i < 16; i++) {
+            x = ScanOrder[i][0];
+            y = ScanOrder[i][1];
 
 #   if MODE_DECISION
-          if (i < _numChnCodeBands)
-            dTotalRate += decodeLDPC(iDCTQ, iDCTResidual, iDecoded, x, y, iOffset);
+            if (i < _numChnCodeBands[c])
+              dTotalRate += decodeLDPC(CHOFFSET(iDCTQ,c),
+                                       CHOFFSET(iDCTResidual,c),
+                                       CHOFFSET(iDecoded,c),
+                                       x, y, iOffset, c);
 #   else
-          dTotalRate += decodeLDPC(iDCTQ, iDCTResidual, iDecoded, x, y, iOffset);
+            dTotalRate += decodeLDPC(CHOFFSET(iDCTQ,c),
+                                     CHOFFSET(iDCTResidual,c),
+                                     CHOFFSET(iDecoded,c),
+                                     x, y, iOffset, c);
 #   endif
 
 #   if SI_REFINEMENT
-          //temporal reconstruction
-          _trans->invQuantization(iDecoded, iDecodedInvQ, iDCTResidual, x, y);
-          _trans->invDctTransform(iDecodedInvQ, iDCTBuffer);
+            //temporal reconstruction
+            _trans->invQuantization(CHOFFSET(iDecoded,c),
+                                    CHOFFSET(iDecodedInvQ,c),
+                                    CHOFFSET(iDCTResidual,c), x, y, c);
+            _trans->invDctTransform(CHOFFSET(iDecodedInvQ,c),
+                                    CHOFFSET(iDCTBuffer,c), c);
 
-          _si->getRecFrame(prevKeyFrame, nextKeyFrame, iDCTBuffer, currFrame, _rcList);
+            _si->getRecFrame(CHOFFSET(prevKeyFrame,c),
+                             CHOFFSET(nextKeyFrame,c),
+                             CHOFFSET(iDCTBuffer,c),
+                             CHOFFSET(currFrame,c), _rcList[c], c);
 
-          iDC = (x == 0 && y == 0) ? 0 : 1;
+            iDC = (x == 0 && y == 0) ? 0 : 1;
 
-          _si->getRefinedSideInfo(prevFrame, nextFrame, imgSI, currFrame, imgRefinedSI, iDC);
+            _si->getRefinedSideInfo(CHOFFSET(prevFrame,c),
+                                    CHOFFSET(nextFrame,c),
+                                    CHOFFSET(imgSI,c),
+                                    CHOFFSET(currFrame,c),
+                                    imgRefinedSI[c], iDC, c);
 
-          memcpy(imgSI, imgRefinedSI, _frameSize);
+            memcpy(CHOFFSET(imgSI,c),
+                   CHOFFSET(imgRefinedSI,c),
+                   frameSize*sizof(int));
 
-          _si->getResidualFrame(prevKeyFrame, nextFrame, imgSI, iDCTBuffer, _rcList);
+            _si->getResidualFrame(CHOFFSET(prevKeyFrame,c),
+                                  CHOFFSET(nextFrame,c),
+                                  CHOFFSET(imgSI,c),
+                                  CHOFFSET(iDCTBuffer,c), _rcList[c], c);
 
-          _trans->dctTransform(iDCTBuffer, iDCTResidual);
-          _trans->quantization(iDCTResidual, iDCTQ);
+            _trans->dctTransform(CHOFFSET(iDCTBuffer,c),
+                                 CHOFFSET(iDCTResidual,c), c);
+            _trans->quantization(CHOFFSET(iDCTResidual,c),
+                                 CHOFFSET(iDCTQ,c), c);
 #   endif
 
-          iOffset += QuantMatrix[_qp][y][x];
-        }
+            iOffset += QuantMatrix[_qp][y][x];
+          }
 
 #   if !SI_REFINEMENT
-        _trans->invQuantization(iDecoded, iDecodedInvQ, iDCTResidual);
-        _trans->invDctTransform(iDecodedInvQ, iDCTBuffer);
+          _trans->invQuantization(CHOFFSET(iDecoded,c),
+                                  CHOFFSET(iDecodedInvQ,c),
+                                  CHOFFSET(iDCTResidual,c), c);
+          _trans->invDctTransform(CHOFFSET(iDecodedInvQ,c),
+                                  CHOFFSET(iDCTBuffer,c), c);
 
-        _si->getRecFrame(prevFrame, nextFrame, iDCTBuffer, currFrame, _rcList);
+          _si->getRecFrame(CHOFFSET(prevFrame,c),
+                           CHOFFSET(nextFrame,c),
+                           CHOFFSET(iDCTBuffer,c),
+                           CHOFFSET(currFrame,c), _rcList[c], c);
 #   endif
 
 # else // if !RESIDUAL_CODING
 
-        _trans->quantization(iDCT, iDCTQ);
+          _trans->quantization(CHOFFSET(iDCT,c), CHOFFSET(iDCTQ,c), c);
 
-        int iOffset = 0;
-        int iDC;
+          int iOffset = 0;
+          int iDC;
 
 #   if SI_REFINEMENT
-        memcpy(iDecodedInvQ, iDCT, 4*_frameSize);
+          memcpy(CHOFFSET(iDecodedInvQ,c),
+                 CHOFFSET(iDCT,c),
+                 frameSize*sizeof(int));
 #   endif
 
-        for (int i = 0; i < 16; i++) {
-          x = ScanOrder[i][0];
-          y = ScanOrder[i][1];
+          for (int i = 0; i < 16; i++) {
+            x = ScanOrder[i][0];
+            y = ScanOrder[i][1];
 
 #   if MODE_DECISION
-          if (i < _numChnCodeBands)
-            dTotalRate += decodeLDPC(iDCTQ, iDCT, iDecoded, x, y, iOffset);
+            if (i < _numChnCodeBands)
+              dTotalRate += decodeLDPC(CHOFFSET(iDCTQ,c), CHOFFSET(iDCT,c),
+                                       CHOFFSET(iDecoded,c), x, y, iOffset, c);
 #   else
-          dTotalRate += decodeLDPC(iDCTQ, iDCT, iDecoded, x, y, iOffset);
+            dTotalRate += decodeLDPC(CHOFFSET(iDCTQ,c), CHOFFSET(iDCT,c),
+                                     CHOFFSET(iDecoded,c), x, y, iOffset, c);
 #   endif
 
 #   if SI_REFINEMENT
-          _trans->invQuantization(iDecoded, iDecodedInvQ, iDCT, x, y);
-          _trans->invDctTransform(iDecodedInvQ, currFrame);
+            _trans->invQuantization(CHOFFSET(iDecoded,c),
+                                    CHOFFSET(iDecodedInvQ,c),
+                                    CHOFFSET(iDCT,c), x, y, c);
+            _trans->invDctTransform(CHOFFSET(iDecodedInvQ,c),
+                                    CHOFFSET(currFrame,c), c);
 
 #     if SKIP_MODE
-          //reconstruct skipped part of wyner-ziv frame
-          getSkippedRecFrame(prevKeyFrame, currFrame, _skipMask);
+            //reconstruct skipped part of wyner-ziv frame
+            getSkippedRecFrame(CHOFFSET(prevKeyFrame,c),
+                               CHOFFSET(currFrame,c), _skipMask[c]);
 #     endif
-          iDC = (x == 0 && y == 0) ? 0 : 1;
+            iDC = (x == 0 && y == 0) ? 0 : 1;
 
-          _si->getRefinedSideInfo(prevFrame, nextFrame, imgSI, currFrame, imgRefinedSI, iDC);
+            _si->getRefinedSideInfo(CHOFFSET(prevFrame,c),
+                                    CHOFFSET(nextFrame,c),
+                                    CHOFFSET(imgSI,c),
+                                    CHOFFSET(currFrame,c),
+                                    CHOFFSET(imgRefinedSI,c), iDC);
 
-          memcpy(imgSI, imgRefinedSI, _frameSize);
+            memcpy(CHOFFSET(imgSI,c),
+                   CHOFFSET(imgRefinedSI,c),
+                   frameSize*sizeof(int));
 
-          _trans->dctTransform(imgSI, iDCT);
-          _trans->quantization(iDCT, iDCTQ);
+            _trans->dctTransform(CHOFFSET(imgSI,c), CHOFFSET(iDCT,c),c);
+            _trans->quantization(CHOFFSET(iDCT,c), CHOFFSET(iDCTQ,c),c);
 #   endif
-          iOffset += QuantMatrix[_qp][y][x];
-        }
+            iOffset += QuantMatrix[_qp][y][x];
+          }
 
 #   if !SI_REFINEMENT
-        _trans->invQuantization(iDecoded, iDecodedInvQ, iDCT);
-        _trans->invDctTransform(iDecodedInvQ, currFrame);
+          _trans->invQuantization(CHOFFSET(iDecoded,c), 
+                                  CHOFFSET(iDecodedInvQ,c), 
+                                  CHOFFSET(iDCT,c), c);
+          _trans->invDctTransform(CHOFFSET(iDecodedInvQ,c),
+                                  CHOFFSET(currFrame,c), c);
 
 #     if SKIP_MODE
-        getSkippedRecFrame(prevKeyFrame, currFrame, _skipMask);
+          getSkippedRecFrame(CHOFFSET(prevKeyFrame,c),
+                             CHOFFSET(currFrame,c), _skipMask[c]);
 #     endif
 
 #   endif
 
 # endif // RESIDUAL_CODING
+        totalrate[c] += dTotalRate;
 
-        totalrate += dTotalRate;
+        }
         cout << endl;
         //cout << "total bits (Y/frame): " << dTotalRate << " Kbytes" << endl;
 
         //cout << "side information quality" << endl;
-        dPSNRSIAvg += calcPSNR(oriCurrFrame, imgSI, _frameSize);
+        dPSNRSIAvg += calcPSNR(oriCurrFrame, imgSI, FSIZE);
 
         //cout << "wyner-ziv frame quality" << endl;
-        dPSNRAvg += calcPSNR(oriCurrFrame, currFrame, _frameSize);
+        dPSNRAvg += calcPSNR(oriCurrFrame, currFrame, FSIZE);
+
+        if (wzFrameNo == 3) {
+          char fname1[] = "sideinfo";  
+          char fname2[] = "invquant";  
+          FILE* f1, *f2;
+          f1 = fopen(fname1, "wb");
+          fwrite(imgSI, 1, FSIZE, f1);
+          fclose(f1);
+          f2 = fopen(fname2, "wb");
+          fwrite(currFrame, 1, FSIZE, f2);
+          fclose(f2);
+        }
 
         idx += 2*frameStep;
       }
     }
+
 
     // ---------------------------------------------------------------------
     // Output decoded frames of the whole GOP
     // ---------------------------------------------------------------------
 
     // First output the key frame
-    fwrite(_fb->getPrevFrame(), _frameSize, 1, fWritePtr);
+    fwrite(_fb->getPrevFrame(), FSIZE, 1, fWritePtr);
 
     // Then output the rest WZ frames
-    for (int i = 0; i < _gop-1; i++)
-      fwrite(_fb->getRecFrames()[i], _frameSize, 1, fWritePtr);
+    for (int i = 0; i < _gop-1; i++) {
+      fwrite(_fb->getRecFrames()[i], FSIZE, 1, fWritePtr);
+    }
   }
 
   timeEnd = clock();
@@ -371,9 +470,11 @@ void Decoder::decodeWZframe()
   dPSNRAvg   /= iDecodeWZFrames;
   dPSNRSIAvg /= iDecodeWZFrames;
   cout<<"Total Bytes         :   "<<totalrate<<endl;
-  cout<<"WZ Avg Rate  (kbps) :   "<<totalrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0<<endl;
+  // TODO: double check these rate calculations
+  int sumrate = totalrate[0] + totalrate[1] + totalrate[2];
+  cout<<"WZ Avg Rate  (kbps) :   "<<sumrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0<<endl;
   cout<<"Key Avg Rate (kbps) :   "<<dKeyCodingRate*framerate*(iNumGOP)/(double)iTotalFrames<<endl;
-  cout<<"Avg Rate (Key+WZ)   :   "<<totalrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0+dKeyCodingRate*framerate*(iNumGOP)/(double)iTotalFrames<<endl;
+  cout<<"Avg Rate (Key+WZ)   :   "<<sumrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0+dKeyCodingRate*framerate*(iNumGOP)/(double)iTotalFrames<<endl;
   cout<<"Key Frame Quality   :   "<<dKeyPSNR<<endl;
   cout<<"SI Avg PSNR         :   "<<dPSNRSIAvg<<endl;
   cout<<"WZ Avg PSNR         :   "<<dPSNRAvg<<endl;
@@ -443,17 +544,21 @@ void Decoder::parseKeyStat(const char* filename, double &rate, double &psnr, int
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-int Decoder::getSyndromeData()
+int Decoder::getSyndromeData(int c)
 {
   int* iDecoded = _fb->getDecFrame();
   int  decodedBits = 0;
+  int  frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  int  frameSize = (c == 0) ? Y_FSIZE : UV_FSIZE;
+  int  bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
 
 # if RESIDUAL_CODING
 
 #   if !HARDWARE_FLOW
   // Decode motion vector
-  for (int i = 0; i < _frameSize/64; i++)
-    _rcList[i] = _bs->read(1);
+  for (int i = 0; i < frameSize/64; i++)
+    _rcList[c][i] = _bs[c]->read(1);
 #   endif
 
 # endif // RESIDUAL_CODING
@@ -465,57 +570,58 @@ int Decoder::getSyndromeData()
 # if RESIDUAL_CODING
 
 #   if !HARDWARE_FLOW
-      _maxValue[j][i] = _bs->read(11);
+      _maxValue[c][j][i] = _bs[c]->read(11);
 #   endif
 
       if (QuantMatrix[_qp][j][i] != 0) {
 #   if HARDWARE_QUANTIZATION
-        _quantStep[j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
+        _quantStep[c][j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
 #   else
         int iInterval = 1 << QuantMatrix[_qp][j][i];
 
-        _quantStep[j][i] = (int)(ceil(double(2*abs(_maxValue[j][i]))/double(iInterval-1)));
-        _quantStep[j][i] = Max(_quantStep[j][i], MinQStepSize[_qp][j][i]);
+        _quantStep[c][j][i] =
+          (int)(ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval-1)));
+        _quantStep[c][j][i] = Max(_quantStep[c][j][i], MinQStepSize[_qp][j][i]);
 #   endif
       }
       else
-        _quantStep[j][i] = 1;
+        _quantStep[c][j][i] = 1;
 
 # else // if !RESIDUAL_CODING
 
       if (i != 0 || j != 0) {
-        _maxValue[j][i] = _bs->read(11);
+        _maxValue[c][j][i] = _bs[c]->read(11);
 
 #   if HARDWARE_QUANTIZATION
         if (QuantMatrix[_qp][j][i] != 0)
-          _quantStep[j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
+          _quantStep[c][j][i] = 1 << (MaxBitPlane[j][i]+1-QuantMatrix[_qp][j][i]);
         else
-          _quantStep[j][i] = 0;
+          _quantStep[c][j][i] = 0;
 #   else
         int iInterval = 1 << QuantMatrix[_qp][j][i];
 
 #     if AC_QSTEP
         if (QuantMatrix[_qp][j][i] != 0) {
-          _quantStep[j][i] = (int)(ceil(double(2*abs(_maxValue[j][i]))/double(iInterval-1)));
+          _quantStep[c][j][i] = (int)(ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval-1)));
 
           if (_quantStep[j][i] < 0)
-            _quantStep[j][i] = 0;
+            _quantStep[c][j][i] = 0;
         }
         else
-          _quantStep[j][i] = 1;
+          _quantStep[c][j][i] = 1;
 #     else
         if (QuantMatrix[_qp][j][i] != 0)
-          _quantStep[j][i] = ceil(double(2*abs(_maxValue[j][i]))/double(iInterval));
+          _quantStep[c][j][i] = ceil(double(2*abs(_maxValue[c][j][i]))/double(iInterval));
         else
-          _quantStep[j][i] = 1;
+          _quantStep[c][j][i] = 1;
 #     endif
 
 #   endif // HARDWARE_QUANTIZATION
       }
       else {
-        _maxValue[j][i] = DC_BITDEPTH;
+        _maxValue[c][j][i] = DC_BITDEPTH;
 
-        _quantStep[j][i] = 1 << (_maxValue[j][i]-QuantMatrix[_qp][j][i]);
+        _quantStep[c][j][i] = 1 << (_maxValue[j][i]-QuantMatrix[_qp][j][i]);
       }
 # endif // RESIDUAL_CODING
     }
@@ -524,12 +630,12 @@ int Decoder::getSyndromeData()
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
 # if MODE_DECISION
-  int codingMode = _bs->read(2);
+  int codingMode = _bs[c]->read(2);
 
-  if (codingMode == 0) _numChnCodeBands = 16; else
-  if (codingMode == 1) _numChnCodeBands =  3; else
-  if (codingMode == 2) _numChnCodeBands =  6; else
-                       _numChnCodeBands =  0;
+  if (codingMode == 0) _numChnCodeBands[c] = 16; else
+  if (codingMode == 1) _numChnCodeBands[c] =  3; else
+  if (codingMode == 2) _numChnCodeBands[c] =  6; else
+                       _numChnCodeBands[c] =  0;
 
   int numBands = 0;
 
@@ -539,7 +645,7 @@ int Decoder::getSyndromeData()
     int x = ScanOrder[bandNo][0];
     int y = ScanOrder[bandNo][1];
 
-    if (bandNo < _numChnCodeBands) {
+    if (bandNo < _numChnCodeBands[c]) {
       _rcQuantMatrix[y][x] = QuantMatrix[_qp][y][x];
       _rcBitPlaneNum += _rcQuantMatrix[y][x];
     }
@@ -564,47 +670,48 @@ int Decoder::getSyndromeData()
 # if HARDWARE_FLOW
   // Discard padded bits
   int dummy = 20;
-  _bs->read(dummy);
+  _bs[c]->read(dummy);
 
-  int bitCount = _bs->getBitCount();
+  int bitCount = _bs[c]->getBitCount();
 # endif
 
 # if SKIP_MODE
-  decodedBits += decodeSkipMask();
+  decodedBits += decodeSkipMask(c);
 # endif
 
 # if HARDWARE_FLOW
-  bitCount = _bs->getBitCount() - bitCount;
+  bitCount = _bs[c]->getBitCount() - bitCount;
 
   if (bitCount%32 != 0) {
     dummy = 32 - (bitCount%32);
-    _bs->read(dummy);
+    _bs[c]->read(dummy);
   }
 
-  bitCount = _bs->getBitCount();
+  bitCount = _bs[c]->getBitCount();
 # endif
 
 # if MODE_DECISION
-  if (numBands > _numChnCodeBands) {
-    for (int j = 0; j < _frameHeight; j += 4)
-      for (int i = 0; i < _frameWidth; i += 4) {
-        if (_skipMask[i/4+(j/4)*(_frameWidth/4)] == 0) //not skip
-          decodedBits += _cavlc->decode(iDecoded, i, j);
+  if (numBands > _numChnCodeBands[c]) {
+    for (int j = 0; j < frameHeight; j += 4)
+      for (int i = 0; i < frameWidth; i += 4) {
+        if (_skipMask[c][i/4+(j/4)*(frameWidth/4)] == 0) //not skip
+          decodedBits += _cavlc->decode(iDecoded, i, j, c);
         else
-          _cavlc->clearNnz(i/4+(j/4)*(_frameWidth/4));
+          _cavlc->clearNnz(i/4+(j/4)*(frameWidth/4), c);
       }
   }
 # endif
 
 # if HARDWARE_FLOW
-  bitCount = _bs->getBitCount() - bitCount;
+  bitCount = _bs[c]->getBitCount() - bitCount;
 
   if (bitCount%32 != 0) {
     dummy = 32 - (bitCount%32);
-    _bs->read(dummy);
+    _bs[c]->read(dummy);
   }
 # endif
 
+  //TODO: FIX THIS!!
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
   // Read parity and CRC bits from the bitstream
@@ -614,18 +721,18 @@ int Decoder::getSyndromeData()
   for (int i = 0; i < BitPlaneNum[_qp]; i++)
 # endif
   {
-    for (int j = 0; j < _bitPlaneLength; j++)
-      _dParity[j+i*_bitPlaneLength] = (double)_bs->read(1);
+    for (int j = 0; j < bplen; j++)
+      _dParity[c][j+i*bplen] = (double)_bs[c]->read(1);
 
 # if !HARDWARE_FLOW
 #   if HARDWARE_LDPC
-    if (_bitPlaneLength == 6336)
+    if (c == 0)
       for (int n = 0; n < 4; n++)
-        _crc[i*4+n] = _bs->read(8);
+        _crc[i*4+n] = _bs[c]->read(8);
     else
-      _crc[i] = _bs->read(8);
+      _crc[c][i] = _bs[c]->read(8);
 #   else
-    _crc[i] = _bs->read(8);
+    _crc[c][i] = _bs[c]->read(8);
 #   endif
 # endif
   }
@@ -635,25 +742,26 @@ int Decoder::getSyndromeData()
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-int Decoder::decodeSkipMask()
+int Decoder::decodeSkipMask(int c)
 {
   int type   = 0;
   int sign   = 0;
   int index  = 0;
   int length = 0;
+  int  bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
 
-  type = _bs->read(2);
-  sign = _bs->read(1);
+  type = _bs[c]->read(2);
+  sign = _bs[c]->read(1);
 
-  memset(_skipMask, 0, _bitPlaneLength*sizeof(int));
+  memset(_skipMask[c], 0, bplen*sizeof(int));
 
-  while (index < _bitPlaneLength) {
+  while (index < bplen) {
     int code = 0;
     int run  = 0;
 
     for (length = 1; length < 15; length++) {
       code <<= 1;
-      code |= _bs->read(1);
+      code |= _bs[c]->read(1);
 
       for (int i = 0; i < 16; i++) {
         int table = _qp / 2;
@@ -671,10 +779,10 @@ int Decoder::decodeSkipMask()
     // Reconstruct skip mask
     if (run == 16)
       for (int i = 0; i < 15; i++)
-        _skipMask[index++] = sign;
+        _skipMask[c][index++] = sign;
     else {
       for (int i = 0; i < run; i++)
-        _skipMask[index++] = sign;
+        _skipMask[c][index++] = sign;
 
       sign = (sign == 0) ? 1 : 0;
     }
@@ -689,7 +797,8 @@ int Decoder::decodeSkipMask()
 */
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int y, int iOffset)
+double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded,
+                           int x, int y, int iOffset, int c)
 {
   int iCurrPos;
   int* iDecodedTmp;
@@ -702,21 +811,24 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
   double dParityRate;
   unsigned char* ucCRCCode;
   int    iNumCode;
+  int  bplen = (c == 0) ? Y_BPLEN : UV_BPLEN;
+  int  frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
 
 # if HARDWARE_LDPC
-  ucCRCCode             = _crc + iOffset*4;
+  ucCRCCode             = _crc[c] + iOffset*4;
 # else
   ucCRCCode             = _crc + iOffset;
 # endif
-  dAccumulatedSyndrome  = _dParity + _bitPlaneLength*iOffset;
+  dAccumulatedSyndrome  = _dParity[c] + bplen*iOffset;
 
-  dLLR         = new double[_bitPlaneLength];
-  iDecodedTmp  = new int   [_bitPlaneLength];
-  dLDPCDecoded = new double[_bitPlaneLength];
-  dSource      = new double[_bitPlaneLength];
+  dLLR         = new double[bplen];
+  iDecodedTmp  = new int   [bplen];
+  dLDPCDecoded = new double[bplen];
+  dSource      = new double[bplen];
   dTotalRate   = 0;
 
-  memset(iDecodedTmp, 0, _bitPlaneLength*4);
+  memset(iDecodedTmp, 0, bplen*sizeof(int));
 
   dParityRate = 0;
 
@@ -728,17 +840,27 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
   {
 # if RESIDUAL_CODING
     if (iCurrPos == _rcQuantMatrix[y][x]-1)
-      dParityRate = _model->getSoftInput(iQuantDCT, _skipMask, iCurrPos, iDecodedTmp, dLLR, x, y, 1);
+      dParityRate = _model->getSoftInput(iQuantDCT, _skipMask[c],
+                                         iCurrPos, iDecodedTmp,
+                                         dLLR, x, y, 1, c);
     else
-      dParityRate = _model->getSoftInput(iDCT, _skipMask, iCurrPos, iDecodedTmp, dLLR, x, y, 2);
+      dParityRate = _model->getSoftInput(iDCT, _skipMask[c],
+                                         iCurrPos, iDecodedTmp,
+                                         dLLR, x, y, 2, c);
 # else
     if (x == 0 && y == 0)
-      dParityRate = _model->getSoftInput(iDCT, _skipMask, iCurrPos, iDecodedTmp, dLLR, 0, 0, 2);
+      dParityRate = _model->getSoftInput(iDCT, _skipMask[c],
+                                         iCurrPos, iDecodedTmp,
+                                         dLLR, 0, 0, 2);
     else {
       if (iCurrPos == QuantMatrix[_qp][y][x]-1)
-        dParityRate = _model->getSoftInput(iQuantDCT, _skipMask, iCurrPos, iDecodedTmp, dLLR, x, y, 1);
+        dParityRate = _model->getSoftInput(iQuantDCT, _skipMask[c],
+                                           iCurrPos, iDecodedTmp,
+                                           dLLR, x, y, 1);
       else
-        dParityRate = _model->getSoftInput(iDCT, _skipMask, iCurrPos, iDecodedTmp, dLLR, x, y, 2);
+        dParityRate = _model->getSoftInput(iDCT, _skipMask[c],
+                                           iCurrPos, iDecodedTmp,
+                                           dLLR, x, y, 2);
     }
 # endif
     iNumCode = int(dParityRate*66);
@@ -750,13 +872,15 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
     iNumCode = 2;
 
 # if HARDWARE_LDPC
-    if (_bitPlaneLength == 6336) {
+    if (bplen == 6336) {
       double dRateTmp = 0;
 
       for (int n = 0; n < 4; n++) {
         iNumCode = 2;
 
-        _ldpca->decode(dLLR+n*1584, dAccumulatedSyndrome+n*1584, dSource+n*1584, dLDPCDecoded+n*1584, &dRate, &dErr, *(ucCRCCode+n), iNumCode);
+        _ldpca->decode(dLLR+n*1584, dAccumulatedSyndrome+n*1584,
+                       dSource+n*1584, dLDPCDecoded+n*1584,
+                       &dRate, &dErr, *(ucCRCCode+n), iNumCode);
         dRateTmp += (dRate/4.0);
         //cout<<dRate<<endl;
         dRate = 0;
@@ -768,7 +892,8 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
       dRate = 0;
     }
     else {
-      _ldpca->decode(dLLR, dAccumulatedSyndrome, dSource, dLDPCDecoded, &dRate, &dErr, *ucCRCCode, iNumCode);
+      _ldpca->decode(dLLR, dAccumulatedSyndrome, dSource, dLDPCDecoded,
+                     &dRate, &dErr, *ucCRCCode, iNumCode);
       cout << ".";
 
       dTotalRate += dRate;
@@ -776,7 +901,9 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
       ucCRCCode++;
     }
 # else
-    _ldpca->decode(dLLR, dAccumulatedSyndrome, dSource, dLDPCDecoded, &dRate, &dErr, *ucCRCCode, iNumCode);
+    _ldpca->decode(dLLR, dAccumulatedSyndrome,
+                   dSource, dLDPCDecoded, &dRate,
+                   &dErr, *ucCRCCode, iNumCode);
     cout << ".";
 
     dTotalRate += dRate;
@@ -784,19 +911,19 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
     ucCRCCode++;
 # endif
 
-    for (int iIndex = 0; iIndex < _bitPlaneLength; iIndex++)
+    for (int iIndex = 0; iIndex < bplen; iIndex++)
       if (dLDPCDecoded[iIndex] == 1)
         iDecodedTmp[iIndex] |= 0x1<<iCurrPos;
 
-    dAccumulatedSyndrome += _bitPlaneLength;
+    dAccumulatedSyndrome += bplen;
 
-    memset(dLDPCDecoded, 0, _bitPlaneLength*sizeof(double));
+    memset(dLDPCDecoded, 0, bplen*sizeof(double));
   }
 
-  for (int j = 0; j < _frameHeight; j = j+4)
-    for (int i = 0; i < _frameWidth; i = i+4) {
-      int tmp = i/4 + j/4*(_frameWidth/4);
-      iDecoded[(i+x)+(j+y)*_frameWidth] = iDecodedTmp[tmp];
+  for (int j = 0; j < frameHeight; j = j+4)
+    for (int i = 0; i < frameWidth; i = i+4) {
+      int tmp = i/4 + j/4*(frameWidth/4);
+      iDecoded[(i+x)+(j+y)*frameWidth] = iDecodedTmp[tmp];
     }
 
   delete [] dLLR;
@@ -804,19 +931,20 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
   delete [] dLDPCDecoded;
   delete [] dSource;
 
-  return (dTotalRate*_bitPlaneLength/8/1024);
+  return (dTotalRate*bplen/8/1024);
 }
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void Decoder::getSourceBit(int *dct_q,double *source,int q_i,int q_j,int curr_pos){
-  int iWidth,iHeight;
-  iWidth  = _frameWidth;
-  iHeight = _frameHeight;
-  for(int y=0;y<iHeight;y=y+4)
-    for(int x=0;x<iWidth;x=x+4)
+void Decoder::getSourceBit(int *dct_q,double *source,
+                           int q_i,int q_j,int curr_pos, int c){
+  int  frameWidth = (c == 0) ? Y_WIDTH : UV_WIDTH;
+  int  frameHeight = (c == 0) ? Y_HEIGHT : UV_HEIGHT;
+  for(int y=0;y<frameHeight;y=y+4)
+    for(int x=0;x<frameWidth;x=x+4)
     {
-      source[(x/4)+(y/4)*(iWidth/4)]=(dct_q[(x+q_i)+(y+q_j)*iWidth]>>curr_pos)&(0x1);
+      source[(x/4)+(y/4)*(frameWidth/4)] =
+        (dct_q[(x+q_i)+(y+q_j)*frameWidth]>>curr_pos)&(0x1);
     }
 }
 
