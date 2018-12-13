@@ -2,7 +2,7 @@
 #ifndef DECODER_INC_CAVLCDEC_H
 #define DECODER_INC_CAVLCDEC_H
 
-#include "config.h"
+#include "defs.h"
 #include "cavlc.h"
 
 // -----------------------------------------------------------------------------

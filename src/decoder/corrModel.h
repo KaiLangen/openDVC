@@ -2,7 +2,7 @@
 #ifndef DECODER_INC_CORRMODEL_H
 #define DECODER_INC_CORRMODEL_H
 
-#include "config.h"
+#include "defs.h"
 
 class Transform;
 class Codec;

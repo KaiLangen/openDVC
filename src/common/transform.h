@@ -2,7 +2,7 @@
 #ifndef ENCODER_INC_TRANSFORM_H
 #define ENCODER_INC_TRANSFORM_H
 
-#include "config.h"
+#include "defs.h"
 
 class Codec;
 

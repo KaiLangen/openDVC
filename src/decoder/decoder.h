@@ -4,7 +4,7 @@
 
 #include <iostream>
 
-#include "config.h"
+#include "defs.h"
 #include "codec.h"
 
 using namespace std;

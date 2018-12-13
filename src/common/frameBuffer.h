@@ -2,7 +2,7 @@
 #ifndef ENCODER_INC_FRAMEBUFFER_H
 #define ENCODER_INC_FRAMEBUFFER_H
 
-#include "config.h"
+#include "defs.h"
 
 class FrameBuffer
 {

@@ -1,0 +1,7 @@
+#ifndef config_h_
+#define config_h_
+
+#define TOP_LVL_DIR "@CMAKE_CURRENT_SOURCE_DIR@"
+#define BUILD_DIR   "@CMAKE_CURRENT_BINARY_DIR@"
+
+#endif

@@ -6,13 +6,19 @@
 #include <cstring>
 #include <cmath>
 
-#include "encoder.h"
-#include "transform.h"
+// common headers
+#include "bitstream.h"
 #include "fileManager.h"
 #include "frameBuffer.h"
+#include "transform.h"
+
+// encoder headers
 #include "cavlcEnc.h"
+#include "encoder.h"
 #include "ldpcaEnc.h"
-#include "bitstream.h"
+
+// cmake config header
+#include "config.h"
 
 using namespace std;
 
@@ -116,11 +122,17 @@ void Encoder::initialize()
       _modeCounter[c][i] = 0;
   }
 
+  stringstream ladstream;
+
   // Initialize LDPC
 # if !HARDWARE_LDPC
-  _ldpca_cif             = new LdpcaEnc("ldpca/6336_regDeg3.lad", this);
+  ladstream << TOP_LVL_DIR << "/data/ldpca/6336_regDeg3.lad";
+  _ldpca_cif             = new LdpcaEnc(ladstream.str(), this);
+  // clear the stream
+  ladstream.str("");
 #endif
-  _ldpca                 = new LdpcaEnc("ldpca/1584_regDeg3.lad", this);
+  ladstream << TOP_LVL_DIR << "/data/ldpca/1584_regDeg3.lad";
+  _ldpca                 = new LdpcaEnc(ladstream.str(), this);
 }
 
 // -----------------------------------------------------------------------------
@@ -134,16 +146,17 @@ void Encoder::encodeKeyFrame()
 
   stringstream cmd(stringstream::in | stringstream::out);
 
-  cmd << "cd jm; ";
+  cmd << "cd " <<  TOP_LVL_DIR <<"/jm; ";
   cmd << "./lencod.exe -d encoder_intra_main.cfg ";
-  cmd << "-p InputFile= \"../../bin/" << srcFileName << "\" ";
-  cmd << "-p ReconFile=" << "\"../../bin/" << keyFileName << "\" ";
+  cmd << "-p InputFile= \""<< BUILD_DIR << "/" << srcFileName << "\" ";
+  cmd << "-p ReconFile=" << "\"" << BUILD_DIR << "/" << keyFileName << "\" ";
   cmd << "-p FramesToBeEncoded=" << ((_numFrames + _gop/2)/_gop) << " ";
   cmd << "-p QPISlice=" << _keyQp << " ";
   cmd << "-p FrameSkip=" << _gop-1 << " ";
   cmd << "-p SourceWidth=" << Y_WIDTH << " ";
   cmd << "-p SourceHeight=" << Y_HEIGHT << " ";
-  cmd << " > jm.log";
+  cmd << " > jm.log;";
+
 
   system(cmd.str().c_str());
 

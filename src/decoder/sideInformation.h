@@ -2,7 +2,7 @@
 #ifndef DECODER_INC_SIDEINFORMATION_H
 #define DECODER_INC_SIDEINFORMATION_H
 
-#include "config.h"
+#include "defs.h"
 
 class CorrModel;
 class Codec;

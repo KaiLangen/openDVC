@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "config.h"
+#include "defs.h"
 
 using std::string;
 

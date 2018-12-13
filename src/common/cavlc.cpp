@@ -1,7 +1,7 @@
 
 #include "cavlc.h"
 #include "codec.h"
-#include "config.h"
+#include "defs.h"
 
 const int Cavlc::ScanOrder[16][2] = {
   {0, 0}, {1, 0}, {0, 1}, {0, 2},

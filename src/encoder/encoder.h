@@ -2,7 +2,7 @@
 #ifndef ENCODER_INC_ENCODER_H
 #define ENCODER_INC_ENCODER_H
 
-#include "config.h"
+#include "defs.h"
 #include "codec.h"
 
 class FileManager;

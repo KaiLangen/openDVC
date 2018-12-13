@@ -2,7 +2,7 @@
 #ifndef COMMON_INC_CODEC_H
 #define COMMON_INC_CODEC_H
 
-#include "config.h"
+#include "defs.h"
 
 class Bitstream;
 

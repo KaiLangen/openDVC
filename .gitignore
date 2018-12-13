@@ -1,6 +1,6 @@
-# tests and sandbox directories
-tests/
+# sandbox directories (for future)
 sandbox/
+tests/
 
 # dependencies and objects from build process
 common/dep/*
@@ -20,9 +20,10 @@ jm/test.264
 jm/jm.log
 jm/leakybucketparam.cfg
 
-# bin and files
+# bin/build/b files
 bin/
 build/
+b/
 
 # extra test files akiyo, coastguard, and football
 # and unzipped ldpca files

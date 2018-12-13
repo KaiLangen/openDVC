@@ -7,18 +7,24 @@
 #include <cmath>
 #include <cstring>
 
-#include "decoder.h"
-#include "fileManager.h"
-#include "sideInformation.h"
-#include "transform.h"
-#include "corrModel.h"
-#include "config.h"
-#include "time.h"
-#include "cavlcDec.h"
-#include "frameBuffer.h"
+// common headers
 #include "bitstream.h"
-#include "ldpcaDec.h"
+#include "defs.h"
+#include "fileManager.h"
+#include "frameBuffer.h"
 #include "regExp.h"
+#include "time.h"
+#include "transform.h"
+
+// decoder headers
+#include "cavlcDec.h"
+#include "corrModel.h"
+#include "decoder.h"
+#include "ldpcaDec.h"
+#include "sideInformation.h"
+
+// cmake config header
+#include "config.h"
 
 using namespace std;
 
@@ -74,19 +80,24 @@ void Decoder::initialize()
   _skipMask[1]           = new int[UV_BPLEN];
   _skipMask[2]           = new int[UV_BPLEN];
 
+  stringstream ladstream;
+  stringstream datstream;
+
 # if HARDWARE_LDPC
   _crc[0]                = new unsigned char[BitPlaneNum[_qp] * 4];
 # else
   _crc[0]                = new unsigned char[BitPlaneNum[_qp]];
-  _ldpca_cif             = new LdpcaDec("ldpca/6336_regDeg3.lad",
-                                        "ldpca/Inverse_Matrix_H_Reg6336.dat",
-                                        this);
+  ladstream << TOP_LVL_DIR << "/data/ldpca/6336_regDeg3.lad";
+  datstream << TOP_LVL_DIR << "/data/ldpca/Inverse_Matrix_H_Reg6336.dat";
+  _ldpca_cif             = new LdpcaDec(ladstream.str(), datstream.str(), this);
+  ladstream.str("");
+  datstream.str("");
 # endif
   _crc[1]                = new unsigned char[BitPlaneNum[_qp]];
   _crc[2]                = new unsigned char[BitPlaneNum[_qp]];
-  _ldpca                 = new LdpcaDec("ldpca/1584_regDeg3.lad",
-                                        "ldpca/Inverse_Matrix_H_Reg1584.dat",
-                                        this);
+  ladstream << TOP_LVL_DIR << "/data/ldpca/1584_regDeg3.lad";
+  datstream << TOP_LVL_DIR << "/data/ldpca/Inverse_Matrix_H_Reg1584.dat";
+  _ldpca                 = new LdpcaDec(ladstream.str(), datstream.str(), this);
 
   for (int c = 0; c < NCHANS; c++) {
     _numChnCodeBands[c]  = NBANDS;

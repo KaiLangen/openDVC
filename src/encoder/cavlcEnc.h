@@ -6,7 +6,7 @@
 
 #include <cstdio>
 
-#include "config.h"
+#include "defs.h"
 #include "cavlc.h"
 
 using std::vector;

@@ -1,8 +1,8 @@
 
 #include <cstdio>
 
-#include "ldpcaEnc.h"
 #include "codec.h"
+#include "ldpcaEnc.h"
 
 LdpcaEnc::LdpcaEnc(const string& fileName, Codec* codec) : Ldpca(fileName, codec)
 {

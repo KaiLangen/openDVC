@@ -1,17 +1,17 @@
 
 #include <iostream>
 #include <sstream>
-
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-#include "cavlcEnc.h"
 #include "codec.h"
-#include "config.h"
-#include "encoder.h"
+#include "defs.h"
 #include "bitstream.h"
 #include "fileManager.h"
+
+#include "cavlcEnc.h"
+#include "encoder.h"
 
 using namespace std;
 
