@@ -4,12 +4,14 @@
 
 ENC_EXE    := enDVC
 DEC_EXE    := deDVC
+MUX_EXE		 := mux
 COL_EXE		 := colour
 
 OUT_DIR    := bin
 
 ENC_TARGET := $(OUT_DIR)/$(ENC_EXE)
 DEC_TARGET := $(OUT_DIR)/$(DEC_EXE)
+MUX_TARGET := $(OUT_DIR)/$(MUX_EXE)
 COL_TARGET := $(OUT_DIR)/$(COL_EXE)
 
 find_objs   = $(subst src/,obj/, \
@@ -19,6 +21,7 @@ find_objs   = $(subst src/,obj/, \
 COM_OBJS   := $(call find_objs,common)
 ENC_OBJS   := $(call find_objs,encoder)
 DEC_OBJS   := $(call find_objs,decoder)
+MUX_OBJS   := $(call find_objs,mux)
 COL_OBJS   := $(call find_objs,colourizer)
 
 # Flags
@@ -45,7 +48,7 @@ ifneq "$(SUB_MAKE)" "yes"
 .DEFAULT_GOAL := default
 
 .PHONY: default
-default: encoder decoder colourizer # bin
+default: encoder decoder mux# colourizer # bin
 	@echo ""
 
 .PHONY: bin
@@ -58,12 +61,16 @@ bin:
 common:
 	@echo ""
 	@echo "Building directory common"
+	mkdir -p common/dep
+	mkdir -p common/obj
 	@$(MAKE) --no-print-directory -s -C common
 
 .PHONY: encoder
 encoder: common
 	@echo ""
 	@echo "Building directory encoder"
+	mkdir -p encoder/dep
+	mkdir -p encoder/obj
 	@$(MAKE) --no-print-directory -s -C encoder
 	@$(CXX) $(ENC_OBJS) -o $(ENC_TARGET)
 	@echo "  LD   $(ENC_EXE)"
@@ -72,14 +79,28 @@ encoder: common
 decoder: common
 	@echo ""
 	@echo "Building directory decoder"
+	mkdir -p decoder/dep
+	mkdir -p decoder/obj
 	@$(MAKE) --no-print-directory -s -C decoder
 	@$(CXX) $(DEC_OBJS) -o $(DEC_TARGET)
 	@echo "  LD   $(DEC_EXE)"
+
+.PHONY: mux
+mux:
+	@echo ""
+	@echo "Building directory mux"
+	mkdir -p mux/dep
+	mkdir -p mux/obj
+	@$(MAKE) --no-print-directory -s -C mux
+	@$(CXX) $(MUX_OBJS) -o $(MUX_TARGET)
+	@echo "  LD   $(MUX_EXE)"
 
 .PHONY: colourizer
 colourizer: common
 	@echo ""
 	@echo "Building directory colourizer"
+	mkdir -p colourizer/dep
+	mkdir -p colourizer/obj
 	@$(MAKE) --no-print-directory -s -C colourizer
 	@$(CXX) $(COL_OBJS) -o $(COL_TARGET)
 	@echo "  LD   $(COL_EXE)"

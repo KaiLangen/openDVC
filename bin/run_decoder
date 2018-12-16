@@ -1,4 +1,12 @@
+#!/bin/bash
+
+# variables
+rec=rec.yuv
+orig=foreman_cif_25hz.yuv
+
 cp jm/stats.dat .
 
-./deDVC wz.bin rec.yuv foreman_qcif_15hz.yuv
-
+./deDVC wz_y.bin $rec $orig y
+./deDVC wz_u.bin $rec $orig u
+./deDVC wz_v.bin $rec $orig v
+./mux wz_y wz_u wz_v 8 wz.yuv

@@ -5,6 +5,8 @@ encoder/dep/*
 encoder/obj/*
 decoder/dep/*
 decoder/obj/*
+mux/dep/*
+mux/obj/*
 colourizer/dep/*
 colourizer/obj/*
 
@@ -14,20 +16,21 @@ bin/jm/data.txt
 bin/jm/log.dat
 bin/jm/stats.dat
 bin/jm/test.264
+bin/jm/jm.log
+bin/jm/leakybucketparam.cfg
 bin/pattern_cavlc.dat
 bin/pattern_dct.dat
 bin/pattern_rlc.dat
 bin/rec.yuv
-bin/wz.bin
-bin/wz.y
-bin/jm/jm.log
-bin/jm/leakybucketparam.cfg
+bin/wz*
 bin/stats.dat
 bin/deDVC
 bin/enDVC
 bin/colour
+bin/mux
 bin/mv.csv
 bin/recoloured.yuv
+compile_commands.json
 
 # extra test files akiyo, coastguard, and football
 bin/foreman*
@@ -42,3 +45,5 @@ bin/run_test.sh
 bin/show_screen.py
 bin/output.txt
 bin/*results*
+
+TODO_PART2

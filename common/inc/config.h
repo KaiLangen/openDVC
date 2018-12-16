@@ -33,6 +33,11 @@
 # define INVERSE_MATRIX         1
 #endif
 
+// Macros for multi-channel coding
+# define FSIZE                  152064
+# define U_OFFSET               101376
+# define V_OFFSET               126720
+
 #include "types.h"
 
 #endif // COMMON_INC_CONFIG_H

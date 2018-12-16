@@ -33,17 +33,29 @@ Encoder::Encoder(char** argv)
 
   _qp          = atoi(argv[1]);
   _keyQp       = atoi(argv[2]);
-  _frameWidth  = atoi(argv[3]);
-  _frameHeight = atoi(argv[4]);
-  _numFrames   = atoi(argv[5]);
-  _gopLevel    = atoi(argv[6]);
+  _numFrames   = atoi(argv[3]);
+  _gopLevel    = atoi(argv[4]);
+  _channel     = argv[5][0];
+  _files->addFile("src", argv[6])->openFile("rb");
+  _files->addFile("wz",  argv[7])->openFile("wb");
+  _files->addFile("key", argv[8])->openFile("rb");
 
-  _files->addFile("src", argv[7])->openFile("rb");
-  _files->addFile("wz",  argv[8])->openFile("wb");
-  _files->addFile("key", argv[9]);
+  if (_files->getFile("src")->getFileHandle() == NULL)
+    throw invalid_argument("invalid source file");
+  if (_files->getFile("key")->getFileHandle() == NULL)
+    throw invalid_argument("invalid key-frame file");
 
   _bs = new Bitstream(1024, _files->getFile("wz")->getFileHandle());
 
+  if (_channel == 'y') {
+    _frameWidth  = 352;
+    _frameHeight = 288;
+  } else if (_channel == 'u' || _channel == 'v') {
+    _frameWidth  = 176;
+    _frameHeight = 144;
+  } else {
+    throw invalid_argument("Channel must be \'y\', \'u\', or \'v\'");
+  }
   initialize();
 }
 
@@ -103,7 +115,7 @@ void Encoder::initialize()
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void Encoder::encodeKeyFrame()
+/*void Encoder::encodeKeyFrame()
 {
   string srcFileName = _files->getFile("src")->getFileName();
   string keyFileName = _files->getFile("key")->getFileName();
@@ -128,7 +140,7 @@ void Encoder::encodeKeyFrame()
   cout << "Done encoding key frames" << endl << endl;
 
   _files->getFile("key")->openFile("rb");
-}
+}*/
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
@@ -169,11 +181,21 @@ void Encoder::encodeWzFrame()
   // ---------------------------------------------------------------------------
   for (int keyFrameNo = 0; keyFrameNo < _numFrames/_gop; keyFrameNo++) {
     // Read previous key frame from the reconstructed key frame file
-    fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+    fseek(fKeyReadPtr, keyFrameNo*FSIZE, SEEK_SET);
+    if (_channel == 'y') {
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize>>1, SEEK_CUR);
+    } else if (_channel == 'u') {
+      fseek(fKeyReadPtr, U_OFFSET, SEEK_CUR);
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+    } else if (_channel == 'u') {
+      fseek(fKeyReadPtr, V_OFFSET, SEEK_CUR);
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+    }
 
     // Read next key frame from the reconstructed key frame file
-    fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
@@ -187,8 +209,16 @@ void Encoder::encodeWzFrame()
         cout << "Encoding frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
 
         // Read current frame from the source file
-        fseek(fReadPtr, (3*wzFrameNo*_frameSize)>>1, SEEK_SET);
-        fread(currFrame, _frameSize, 1, fReadPtr);
+        fseek(fReadPtr, wzFrameNo*FSIZE, SEEK_SET);
+        if (_channel == 'y') {
+          fread(currFrame, _frameSize, 1, fReadPtr);
+        } else if (_channel == 'u') {
+          fseek(fReadPtr, U_OFFSET, SEEK_CUR);
+          fread(currFrame, _frameSize, 1, fReadPtr);
+        } else if (_channel == 'u') {
+          fseek(fReadPtr, V_OFFSET, SEEK_CUR);
+          fread(currFrame, _frameSize, 1, fReadPtr);
+        }
 
         // ---------------------------------------------------------------------
         // STAGE 1 - Residual coding & DCT

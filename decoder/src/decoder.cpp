@@ -28,11 +28,13 @@ Decoder::Decoder(char **argv)
   _files = FileManager::getManager();
 
   string wzFileName = argv[1];
-  string recFileName = wzFileName.substr(0, wzFileName.find(".bin")) + ".y";
+  string recFileName = wzFileName.substr(0, wzFileName.find(".bin"));
 
   _files->addFile("wz",     argv[1])->openFile("rb");
   _files->addFile("key",    argv[2])->openFile("rb");
   _files->addFile("origin", argv[3])->openFile("rb");
+  _channel = argv[4][0];
+  
   _files->addFile("rec",    recFileName.c_str())->openFile("wb");
   _files->addFile("mv",     "mv.csv")->openFile("w");
 
@@ -169,12 +171,20 @@ void Decoder::decodeWZframe()
   // ---------------------------------------------------------------------------
   for (int keyFrameNo = 0; keyFrameNo < (_numFrames-1)/_gop; keyFrameNo++) {
     // Read previous key frame
-    fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
-    fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
-    fread(keyColour, _frameSize>>1, 1, fKeyReadPtr);
-
-    // Read next key frame
-    fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
+    fseek(fKeyReadPtr, keyFrameNo*FSIZE, SEEK_SET);
+    if (_channel == 'y') {
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize>>1, SEEK_CUR);
+    } else if (_channel == 'u') {
+      fseek(fKeyReadPtr, U_OFFSET, SEEK_CUR);
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+    } else if (_channel == 'v') {
+      fseek(fKeyReadPtr, V_OFFSET, SEEK_CUR);
+      fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
+      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+    }
+    // read nextFrame from exactly one frame ahead, regardless of offset
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
@@ -188,8 +198,16 @@ void Decoder::decodeWZframe()
         cout << "Decoding frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
 
         // Read current frame from the original file
-        fseek(fReadPtr, (3*wzFrameNo*_frameSize)>>1, SEEK_SET);
-        fread(oriCurrFrame, _frameSize, 1, fReadPtr);
+        fseek(fReadPtr, wzFrameNo*FSIZE, SEEK_SET);
+        if (_channel == 'y') {
+          fread(oriCurrFrame, _frameSize, 1, fReadPtr);
+        } else if (_channel == 'u') {
+          fseek(fReadPtr, U_OFFSET, SEEK_CUR);
+          fread(oriCurrFrame, _frameSize, 1, fReadPtr);
+        } else if (_channel == 'v') {
+          fseek(fReadPtr, V_OFFSET, SEEK_CUR);
+          fread(oriCurrFrame, _frameSize, 1, fReadPtr);
+        }
 
         // Setup frame pointers within the GOP
         int prevIdx = idx - frameStep;

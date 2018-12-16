@@ -53,6 +53,8 @@ private:
 
   FileManager*      _files;
 
+  char              _channel;
+
   FrameBuffer*      _fb;
 
   Transform*        _trans;

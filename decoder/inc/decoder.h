@@ -52,6 +52,8 @@ private:
 
   FrameBuffer*      _fb;
 
+  char              _channel;
+
   Transform*        _trans;
 
   CorrModel*        _model;

@@ -1,2 +1,32 @@
-./enDVC 7 25 176 144 150 1 foreman_qcif_15hz.yuv wz.bin rec.yuv
+#!/bin/bash
 
+# variables
+rec=rec.yuv
+orig=foreman_cif_25hz.yuv
+frames=10
+width=352
+height=288
+gop=2
+gopLevel=1
+keyQP=25
+wzQP=7
+
+# create key-frame file
+
+echo "Running JM to encode key frames";
+cd jm;
+#./lencod.exe -d encoder_intra_main.cfg \
+#             -p InputFile= "../$orig" \
+#             -p ReconFile= "../$rec" \
+#             -p QPISlice=$keyQP \
+#             -p FrameSkip=$(( gop-1 )) \
+#             -p SourceWidth=$width \
+#             -p SourceHeight=$height \
+#             -p FramesToBeEncoded=$(( (frames + gop/2)/gop )) > jm.log
+#
+cd ..;
+echo "Done encoding key frames";
+# encode wz streams
+./enDVC $wzQP $keyQP $frames $gopLevel y $orig wz_y.bin $rec 
+./enDVC $wzQP $keyQP $frames $gopLevel u $orig wz_u.bin $rec  
+./enDVC $wzQP $keyQP $frames $gopLevel v $orig wz_v.bin $rec  

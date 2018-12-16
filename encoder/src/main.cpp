@@ -7,11 +7,11 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-  if (argc != 10) {
+  if (argc != 9) {
     cerr << endl;
     cerr << "Usage: ./enDVC ";
-    cerr << "[WZ QP] [key QP] [width] [height] ";
-    cerr << "[frame number] [GOP level] ";
+    cerr << "[WZ QP] [key QP] ";
+    cerr << "[frame number] [GOP level] [Channel] ";
     cerr << "[input file] [output file] [recon file]" << endl;
     cerr << endl;
   }
@@ -22,7 +22,6 @@ int main(int argc, char** argv)
 
     Encoder* encoder = new Encoder(argv);
 
-    encoder->encodeKeyFrame();
     encoder->encodeWzFrame();
 
     cout << endl;

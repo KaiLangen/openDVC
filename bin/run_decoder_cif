@@ -1,4 +1,0 @@
-cp jm/stats.dat .
-
-./deDVC wz.bin rec.yuv foreman_cif_25hz.yuv
-
