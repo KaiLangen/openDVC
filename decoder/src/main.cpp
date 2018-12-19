@@ -7,12 +7,14 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-  if (argc != 5) {
+  if (argc != 6 and argc != 7) {
     cerr << "Usage: ./deDVC ";
     cerr << "[wz varBitstream file] ";
     cerr << "[key frame file] ";
-    cerr << "[original video file] " << endl;
-    cerr << "[channel]" << endl;
+    cerr << "[original video file] ";
+    cerr << "[channel] ";
+    cerr << "[SI Method] ";
+    cerr << "[helper file]" << endl;
     cerr << endl;
     return 1;
   }

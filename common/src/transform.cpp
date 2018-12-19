@@ -44,12 +44,14 @@ template void Transform::dctTransform(imgpel* src, int* dst);
 template <typename T, typename U>
 void Transform::dctTransform(T* src, U* dst)
 {
+# if TESTPATTERN
   File* patternFile;
   FILE* patternFh;
 
   patternFile = FileManager::getManager()->addFile("pattern_dct", "pattern_dct.dat");
   patternFile->openFile("w");
   patternFh = patternFile->getFileHandle();
+#endif
 
   int width  = _codec->getFrameWidth();
   int height = _codec->getFrameHeight();
@@ -96,7 +98,9 @@ void Transform::dctTransform(T* src, U* dst)
 # endif // INTEGER_DCT
     }
 
+# if TESTPATTERN
   patternFile->closeFile();
+#endif
 }
 
 // -----------------------------------------------------------------------------

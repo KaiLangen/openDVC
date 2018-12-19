@@ -5,6 +5,8 @@
 typedef unsigned char byte;
 typedef unsigned char imgpel;
 
+enum SIMethod {NONE, SEPARATE, TWOSTAGE};
+
 // Contain 4 rows by 4 columns of 4x4 blocks
 typedef struct _mb {
   int             I4;                 // 1:is I4 0:is I16

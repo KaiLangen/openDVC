@@ -34,6 +34,10 @@ Decoder::Decoder(char **argv)
   _files->addFile("key",    argv[2])->openFile("rb");
   _files->addFile("origin", argv[3])->openFile("rb");
   _channel = argv[4][0];
+  _SIMethod = (SIMethod)atoi(argv[5]);
+  if (_SIMethod == TWOSTAGE) {
+    _files->addFile("helper", argv[6])->openFile("rb");
+  }
   
   _files->addFile("rec",    recFileName.c_str())->openFile("wb");
   _files->addFile("mv",     "mv.csv")->openFile("w");
@@ -84,7 +88,11 @@ void Decoder::initialize()
   _trans = new Transform(this);
 
   _model = new CorrModel(this, _trans);
-  _si    = new SideInformation(this, _model);
+  if (_SIMethod == SEPARATE)
+    _si = new OneStage(this, _model);
+  else 
+    _si = new TwoStage(this, _files->getFile("helper")->getFileHandle(),
+                       _frameHeight*2, _frameWidth*2);
 
   _cavlc = new CavlcDec(this, 4);
 
@@ -161,7 +169,6 @@ void Decoder::decodeWZframe()
   FILE* fReadPtr    = _files->getFile("origin")->getFileHandle();
   FILE* fWritePtr   = _files->getFile("rec")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
-  FILE* mvFilePtr = _files->getFile("mv")->getFileHandle();
 
   parseKeyStat("stats.dat", dKeyCodingRate, dKeyPSNR, _keyQp);
 
@@ -178,11 +185,11 @@ void Decoder::decodeWZframe()
     } else if (_channel == 'u') {
       fseek(fKeyReadPtr, U_OFFSET, SEEK_CUR);
       fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
-      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+      fseek(fKeyReadPtr, _frameSize*5, SEEK_CUR);
     } else if (_channel == 'v') {
       fseek(fKeyReadPtr, V_OFFSET, SEEK_CUR);
       fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
-      fseek(fKeyReadPtr, _frameSize*3, SEEK_CUR);
+      fseek(fKeyReadPtr, _frameSize*5, SEEK_CUR);
     }
     // read nextFrame from exactly one frame ahead, regardless of offset
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
@@ -224,7 +231,21 @@ void Decoder::decodeWZframe()
         // ---------------------------------------------------------------------
         // STAGE 1 - Create side information
         // ---------------------------------------------------------------------
-        _si->createSideInfo(prevFrame, nextFrame, imgSI, mvFilePtr);
+        if (_SIMethod == SEPARATE)
+          _si->createSideInfo(prevFrame, nextFrame, imgSI);
+        else if (_SIMethod == TWOSTAGE) {
+          _si->createSideInfo(prevFrame, nextFrame, imgSI,
+                              keyFrameNo*_gop,
+                              (keyFrameNo+1)*_gop,
+                              keyFrameNo*_gop + idx);
+          unsigned int psnr = calcPSNR(oriCurrFrame, imgSI, _frameSize);
+          memcpy(currFrame, imgSI, _frameSize);
+          //memcpy(currFrame, prevFrame, _frameSize);
+          idx += 2*frameStep;
+          dPSNRSIAvg += calcPSNR(oriCurrFrame, imgSI, _frameSize);
+          dPSNRAvg += calcPSNR(oriCurrFrame, currFrame, _frameSize);
+          continue;
+        }
 
         // ---------------------------------------------------------------------
         // STAGE 2 -

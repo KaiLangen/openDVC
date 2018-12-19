@@ -3,12 +3,12 @@
 # variables
 rec=rec.yuv
 orig=foreman_cif_25hz.yuv
-frames=10
+frames=50
 width=352
 height=288
 gop=2
 gopLevel=1
-keyQP=25
+keyQP=10
 wzQP=7
 
 # create key-frame file
@@ -28,5 +28,5 @@ cd ..;
 echo "Done encoding key frames";
 # encode wz streams
 ./enDVC $wzQP $keyQP $frames $gopLevel y $orig wz_y.bin $rec 
-./enDVC $wzQP $keyQP $frames $gopLevel u $orig wz_u.bin $rec  
-./enDVC $wzQP $keyQP $frames $gopLevel v $orig wz_v.bin $rec  
+./enDVC 0 $keyQP $frames $gopLevel u $orig wz_u.bin $rec
+./enDVC 0 $keyQP $frames $gopLevel v $orig wz_v.bin $rec
