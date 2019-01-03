@@ -13,5 +13,7 @@ int calcSAD(imgpel* blk1, imgpel* blk2, int width, int blocksize);
 int TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
         int step, int center, int width, int height, int blocksize);
 
+int ES(imgpel* trg, imgpel* ref, mvinfo& mv,
+       int p, int center, int width, int height, int blocksize);
 
 #endif // COMMON_INC_ME_H

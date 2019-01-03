@@ -16,9 +16,9 @@ public:
     _sideInfoFrame    = new imgpel[frameSize];
 
     if (gop != 0) {
-      _recFrames      = new imgpel*[gop-1];
+      _recFrames      = new imgpel*[gop];
 
-      for (int i = 0; i < gop-1; i++)
+      for (int i = 0; i < gop; i++)
         _recFrames[i] = new imgpel[frameSize];
     }
 

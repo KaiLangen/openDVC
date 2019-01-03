@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <exception>
 
 #include "decoder.h"
 #include "fileManager.h"
@@ -35,7 +36,7 @@ Decoder::Decoder(char **argv)
   _files->addFile("origin", argv[3])->openFile("rb");
   _channel = argv[4][0];
   _SIMethod = (SIMethod)atoi(argv[5]);
-  if (_SIMethod == TWOSTAGE) {
+  if (_SIMethod == LUMAFIRST || _SIMethod == CHROMAFIRST) {
     _files->addFile("helper", argv[6])->openFile("rb");
   }
   
@@ -90,9 +91,15 @@ void Decoder::initialize()
   _model = new CorrModel(this, _trans);
   if (_SIMethod == SEPARATE)
     _si = new OneStage(this, _model);
-  else 
+  else if (_SIMethod == LUMAFIRST)
     _si = new TwoStage(this, _files->getFile("helper")->getFileHandle(),
                        _frameHeight*2, _frameWidth*2);
+  else if (_SIMethod == CHROMAFIRST)
+    _si = new TwoStage(this, _files->getFile("helper")->getFileHandle(),
+                       _frameHeight/2, _frameWidth/2);
+  else
+    throw invalid_argument("Unsupported SI generation method.");
+
 
   _cavlc = new CavlcDec(this, 4);
 
@@ -197,10 +204,11 @@ void Decoder::decodeWZframe()
     for (int il = 0; il < _gopLevel; il++) {
       int frameStep = _gop / ((il+1)<<1);
       int idx = frameStep;
+      int prevNo = keyFrameNo*_gop;
 
       // Start decoding the WZ frame
       while (idx < _gop) {
-        int wzFrameNo = keyFrameNo*_gop + idx;
+        int wzFrameNo = prevNo + idx;
 
         cout << "Decoding frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
 
@@ -231,16 +239,24 @@ void Decoder::decodeWZframe()
         // ---------------------------------------------------------------------
         // STAGE 1 - Create side information
         // ---------------------------------------------------------------------
-        if (_SIMethod == SEPARATE)
+        if (_SIMethod == SEPARATE) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI);
-        else if (_SIMethod == TWOSTAGE) {
+        }
+        if (_SIMethod == LUMAFIRST) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI,
-                              keyFrameNo*_gop,
-                              (keyFrameNo+1)*_gop,
-                              keyFrameNo*_gop + idx);
-          unsigned int psnr = calcPSNR(oriCurrFrame, imgSI, _frameSize);
+                              prevNo + prevIdx,
+                              prevNo + nextIdx,
+                              prevNo + idx);
+        }
+       else if (_SIMethod == CHROMAFIRST) {
+          _si->createSideInfo(prevFrame, nextFrame, imgSI,
+                              prevNo + prevIdx,
+                              prevNo + nextIdx,
+                              prevNo + idx);
+        }
+
+        if (_channel == 'u' || _channel == 'v') {
           memcpy(currFrame, imgSI, _frameSize);
-          //memcpy(currFrame, prevFrame, _frameSize);
           idx += 2*frameStep;
           dPSNRSIAvg += calcPSNR(oriCurrFrame, imgSI, _frameSize);
           dPSNRAvg += calcPSNR(oriCurrFrame, currFrame, _frameSize);
@@ -369,7 +385,7 @@ void Decoder::decodeWZframe()
 # endif // RESIDUAL_CODING
 
         totalrate += dTotalRate;
-        cout << endl;
+        //cout << endl;
         //cout << "total bits (Y/frame): " << dTotalRate << " Kbytes" << endl;
 
         //cout << "side information quality" << endl;
@@ -416,7 +432,7 @@ void Decoder::decodeWZframe()
   cout<<"Key Frame Quality   :   "<<dKeyPSNR<<endl;
   cout<<"SI Avg PSNR         :   "<<dPSNRSIAvg<<endl;
   cout<<"WZ Avg PSNR         :   "<<dPSNRAvg<<endl;
-  cout<<"Avg    PSNR         :   "<<(dPSNRAvg+dKeyPSNR)/2<<endl;
+  cout<<"Avg    PSNR         :   "<<((_gop-1)*dPSNRAvg+dKeyPSNR)/_gop<<endl;
   cout<<"Total Decoding Time :   "<<cpuTime<<"(s)"<<endl;
   cout<<"Avg Decoding Time   :   "<<cpuTime/(iDecodeWZFrames)<<endl;
   cout<<"--------------------------------------------------"<<endl;
@@ -440,7 +456,16 @@ void Decoder::parseKeyStat(const char* filename, double &rate, double &psnr, int
   while (stats.getline(buf, 1024)) {
     string result;
 
-    if (rgx->match(buf, "\\s*SNR Y\\(dB\\)[ |]*([0-9\\.]+)", result)) {
+    if ((_channel == 'y') &&
+        (rgx->match(buf, "\\s*SNR Y\\(dB\\)[ |]*([0-9\\.]+)", result))) {
+      psnr = atof(result.c_str());
+      continue;
+    } else if ((_channel == 'u') &&
+        (rgx->match(buf, "\\s*SNR U\\(dB\\)[ |]*([0-9\\.]+)", result))) {
+      psnr = atof(result.c_str());
+      continue;
+    } else if ((_channel == 'v') &&
+        (rgx->match(buf, "\\s*SNR V\\(dB\\)[ |]*([0-9\\.]+)", result))) {
       psnr = atof(result.c_str());
       continue;
     }
@@ -469,8 +494,11 @@ void Decoder::parseKeyStat(const char* filename, double &rate, double &psnr, int
   int count = 0;
   double totalRate = 0;
 
-  if (iSliceRate != 0) {
+  if ((_channel == 'y') && (iSliceRate != 0)) {
     totalRate += iSliceRate - iSlice_chroma;
+    count++;
+  } else if ((_channel == 'u' || _channel == 'v') && (iSlice_chroma != 0)) {
+    totalRate += iSlice_chroma / 2.0;
     count++;
   }
 

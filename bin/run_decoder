@@ -1,12 +1,19 @@
 #!/bin/bash
 
 # variables
-rec=rec.yuv
-orig=foreman_cif_25hz.yuv
+rec=rec4.yuv
+dir=$1
+orig=$2
+nframes=200
 
-cp jm/stats.dat .
+cp $dir/stats.dat .
 
-./deDVC wz_y.bin $rec $orig y 1
-./deDVC wz_u.bin $rec $orig u 2 wz_y
-./deDVC wz_v.bin $rec $orig v 2 wz_y
-./mux wz_y wz_u wz_v wz.yuv 50
+# exe [bit-stream file] [key file] [original file] [channel] [SI method] [optional: helper file]
+# SI METHODS:
+# 1 - separate
+# 2 - luma first
+# 3 - chroma first
+#./deDVC $dir/wz_y.bin $dir/$rec $dir/$orig y 1
+./deDVC $dir/wz_u.bin $dir/$rec $dir/$orig u 2 $dir/wz_y
+./deDVC $dir/wz_v.bin $dir/$rec $dir/$orig v 2 $dir/wz_y
+./mux $dir/wz_y $dir/wz_u $dir/wz_v $dir/wz.yuv $nframes

@@ -11,6 +11,7 @@ colourizer/dep/*
 colourizer/obj/*
 
 # bin files from build build process / run generated files
+bin/*
 bin/ldpca/
 bin/jm/data.txt
 bin/jm/log.dat

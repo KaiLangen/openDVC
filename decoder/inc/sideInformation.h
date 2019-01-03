@@ -51,9 +51,10 @@ public:
                       int prevFrameno, int nextFrameNo, int currFrameNo);
 
 protected:
-  void ME(imgpel* prevFrame, imgpel* currFrame, imgpel* nextFrame);
+  void ME(imgpel* prevFrame, imgpel* currFrame, imgpel* nextFrame,
+          int width, int height);
 
-  void MC(imgpel* prevTrg, imgpel* currTrg, imgpel* nextTrg);
+  void MC(imgpel* prevTrg, imgpel* currTrg, imgpel* nextTrg, int factor);
 
 protected:
   int _srcHeight;

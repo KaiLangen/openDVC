@@ -1,32 +1,35 @@
 #!/bin/bash
 
 # variables
-rec=rec.yuv
-orig=foreman_cif_25hz.yuv
-frames=50
+dir=$1
+orig=$2
+keyQP=$3
+frames=200
 width=352
 height=288
-gop=2
-gopLevel=1
-keyQP=10
+gopLevel=2
+gop=$((1<<gopLevel))
+rec=rec$gop.yuv
+echo $gop
 wzQP=7
 
 # create key-frame file
 
 echo "Running JM to encode key frames";
 cd jm;
-#./lencod.exe -d encoder_intra_main.cfg \
-#             -p InputFile= "../$orig" \
-#             -p ReconFile= "../$rec" \
-#             -p QPISlice=$keyQP \
-#             -p FrameSkip=$(( gop-1 )) \
-#             -p SourceWidth=$width \
-#             -p SourceHeight=$height \
-#             -p FramesToBeEncoded=$(( (frames + gop/2)/gop )) > jm.log
-#
+./lencod.exe -d encoder_intra_main.cfg \
+             -p InputFile= "../$dir/$orig" \
+             -p ReconFile= "../$dir/$rec" \
+             -p QPISlice=$keyQP \
+             -p FrameSkip=$(( gop-1 )) \
+             -p SourceWidth=$width \
+             -p SourceHeight=$height \
+             -p FramesToBeEncoded=$(( (frames + gop/2)/gop )) > jm.log
+mv stats.dat ../$dir/
 cd ..;
 echo "Done encoding key frames";
+
 # encode wz streams
-./enDVC $wzQP $keyQP $frames $gopLevel y $orig wz_y.bin $rec 
-./enDVC 0 $keyQP $frames $gopLevel u $orig wz_u.bin $rec
-./enDVC 0 $keyQP $frames $gopLevel v $orig wz_v.bin $rec
+#./enDVC $wzQP $keyQP $frames $gopLevel y $dir/$orig $dir/wz_y.bin $dir/$rec
+./enDVC 0 $keyQP $frames $gopLevel u $dir/$orig $dir/wz_u.bin $dir/$rec
+./enDVC 0 $keyQP $frames $gopLevel v $dir/$orig $dir/wz_v.bin $dir/$rec

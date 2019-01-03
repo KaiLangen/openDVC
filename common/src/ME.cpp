@@ -153,16 +153,49 @@ int TSS(imgpel* trg, imgpel* ref, mvinfo& mv,
     return costs[4];
 }
 
-//int SideInformation::calcSAD(imgpel* blk1, imgpel* blk2,const int blocksize,const int iPadSize){
-//  int iWidth;
-//  iWidth  = _codec->getFrameWidth();
-//  int sad=0;
-//  for(int y=0;y<blocksize;y++)
-//    for(int x=0;x<blocksize;x++)
-//    {
-//      imgpel pel1=*(blk1+x+y*(iWidth+2*iPadSize));
-//      imgpel pel2=*(blk2+x+y*(iWidth+2*iPadSize));
-//      sad+=abs(pel1-pel2);
-//    }
-//  return sad;
-//}
+int ES(imgpel* trg, imgpel* ref, mvinfo& mv,
+       int p, int center, int width, int height, int blocksize)
+{
+    // search start location
+    int cx, cy, x, y, loc;
+    unsigned int cost;
+    unsigned int mincost = UINT_MAX;
+    cy = center / width;
+    cx = center % width;
+    // coordinates in the cost matrix = (i,j)
+    for(int i = -p; i < p; ++i)
+    {
+        for(int j = -p; j < p; ++j)
+        {
+            y = cy + i;
+            x = cx + j;
+
+            // check if the pt coordinates fall outside of the image
+            if(x < 0 || x >= width - blocksize ||
+               y < 0 || y >= height - blocksize ||
+               (i == 1 && j == 1))
+            {
+                continue;
+            }
+            cost = calcSAD(&trg[center],
+                           &ref[y*width + x],
+                                width,
+                                blocksize);
+            if (cost < mincost) {
+              loc = y * width + x;
+              mincost = cost;
+            }
+        }
+    }
+
+    // set the center and location
+    cx = center % width;
+    cy = center / width;
+    x = loc % width;
+    y = loc / width;
+    // MV is new location - original location
+    mv.iMvx = x - cx;
+    mv.iMvy = y - cy;
+
+    return mincost;
+}
