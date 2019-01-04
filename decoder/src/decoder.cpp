@@ -36,14 +36,18 @@ Decoder::Decoder(char **argv)
   _files->addFile("origin", argv[3])->openFile("rb");
   _channel = argv[4][0];
   _SIMethod = (SIMethod)atoi(argv[5]);
-  if (_SIMethod == LUMAFIRST || _SIMethod == CHROMAFIRST) {
+
+  if (_SIMethod == SAME)
+    if (_channel == 'y')
+      _files->addFile("helper", argv[6])->openFile("w");
+    else
+      _files->addFile("helper", argv[6])->openFile("r");
+  else if (_SIMethod == MC_RE)
     _files->addFile("helper", argv[6])->openFile("rb");
-  }
   
-  _files->addFile("rec",    recFileName.c_str())->openFile("wb");
-  _files->addFile("mv",     "mv.csv")->openFile("w");
 
   _bs = new Bitstream(1024, _files->getFile("wz")->getFileHandle());
+  _files->addFile("rec", recFileName.c_str())->openFile("wb");
 
   decodeWzHeader();
 
@@ -89,14 +93,13 @@ void Decoder::initialize()
   _trans = new Transform(this);
 
   _model = new CorrModel(this, _trans);
-  if (_SIMethod == SEPARATE)
-    _si = new OneStage(this, _model);
-  else if (_SIMethod == LUMAFIRST)
-    _si = new TwoStage(this, _files->getFile("helper")->getFileHandle(),
-                       _frameHeight*2, _frameWidth*2);
-  else if (_SIMethod == CHROMAFIRST)
-    _si = new TwoStage(this, _files->getFile("helper")->getFileHandle(),
-                       _frameHeight/2, _frameWidth/2);
+  if (_SIMethod == MCI_RE)
+    _si = new SI_MCI(this, _model);
+  else if (_SIMethod == SAME)
+    _si = new SI_MCI(this,_model, _files->getFile("helper")->getFileHandle());
+  else if (_SIMethod == MC_RE)
+    _si = new SI_MC(this, _files->getFile("helper")->getFileHandle(),
+                    _frameHeight*2, _frameWidth*2);
   else
     throw invalid_argument("Unsupported SI generation method.");
 
@@ -239,16 +242,9 @@ void Decoder::decodeWZframe()
         // ---------------------------------------------------------------------
         // STAGE 1 - Create side information
         // ---------------------------------------------------------------------
-        if (_SIMethod == SEPARATE) {
+        if (_SIMethod == SAME || _SIMethod == MCI_RE) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI);
-        }
-        if (_SIMethod == LUMAFIRST) {
-          _si->createSideInfo(prevFrame, nextFrame, imgSI,
-                              prevNo + prevIdx,
-                              prevNo + nextIdx,
-                              prevNo + idx);
-        }
-       else if (_SIMethod == CHROMAFIRST) {
+        } else if (_SIMethod == MC_RE) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI,
                               prevNo + prevIdx,
                               prevNo + nextIdx,

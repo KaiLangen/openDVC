@@ -10,23 +10,30 @@
 
 class Codec;
 
-OneStage::OneStage(Codec* codec, CorrModel* model)
+SI_MCI::SI_MCI(Codec* codec, CorrModel* model, FILE* mvFile)
 : SideInformation(codec)
 {
   _model = model;
 
   int width  = _codec->getFrameWidth();
   int height = _codec->getFrameHeight();
+  int iRange = 16;
 
   _varList0 = new mvinfo[width * height / 64];
   _varList1 = new mvinfo[width * height / 64];
 
 # if SI_REFINEMENT
-  _refinedMask = new int[width * height / 16];
+  _refinedMask = new int[width * height / iRange];
 # endif
+  if (mvFile) {
+    _mvFile = mvFile;
+  } else {
+    _mvFile = NULL;
+  }
+  _nMV = width * height / (iRange*iRange);
 }
 
-OneStage::~OneStage()
+SI_MCI::~SI_MCI()
 {
   delete [] _varList0;
   delete [] _varList1;
@@ -36,12 +43,27 @@ OneStage::~OneStage()
 # endif
 }
 
+void SI_MCI::readMVFromFile(mvinfo* varCand)
+{
+  int cx, cy, mvx, mvy;
+
+  //fill mv list from file
+  for (int i = 0; i < _nMV; i++) {
+    fscanf(_mvFile, "%d, %d, %d, %d", &cx, &cy, &mvx, &mvy);
+    varCand[i].iCx = cx/2;
+    varCand[i].iCy = cy/2;
+    varCand[i].iMvx = mvx/2;
+    varCand[i].iMvy = mvy/2;
+  }
+}
+
+
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 /*
 *get approximately true motion field
 */
-void OneStage::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate,
+void SI_MCI::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate,
                          const int iRange)
 {
   int iWidth,iHeight;
@@ -153,7 +175,7 @@ void OneStage::forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate,
 /*
 * create side information of the current frame
 */
-void OneStage::createSideInfo(imgpel* imgPrevKey,
+void SI_MCI::createSideInfo(imgpel* imgPrevKey,
                               imgpel* imgNextKey,
                               imgpel* imgCurrFrame,
                               int,int,int)
@@ -212,9 +234,9 @@ void OneStage::createSideInfo(imgpel* imgPrevKey,
 * main process of creating side information
 */
 # if SI_REFINEMENT
-void OneStage::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, int iMode)
+void SI_MCI::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward, int iMode)
 # else
-void OneStage::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward)
+void SI_MCI::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, imgpel* imgMCForward, imgpel* imgMCBackward)
 # endif
 {
   int width  = _codec->getFrameWidth();
@@ -238,17 +260,34 @@ void OneStage::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, img
   lowpassFilter(imgPrevKey , imgPrevLowPass, 3);
   lowpassFilter(imgNextKey , imgNextLowPass, 3);
 
-  forwardME(imgPrevLowPass, imgNextLowPass, varCandidate , iRange);
+  if (_mvFile) {
+    if (_codec->getChannel() != 'y') {
+      readMVFromFile(varCandidate);
+    } else {
+      // Write Motion Vectors to file
+      char motionVectorBuffer[100];
+      int n;
+      forwardME(imgPrevLowPass, imgNextLowPass, varCandidate, iRange);
+      for (int index = 0; index < _nMV; index++) {
+        n = sprintf(motionVectorBuffer, "%d, %d, %d, %d\n",
+                    varCandidate[index].iCx,
+                    varCandidate[index].iCy,
+                    varCandidate[index].iMvx,
+                    varCandidate[index].iMvy);
+        fwrite(motionVectorBuffer, n, 1, _mvFile);
+      }
+    }
+  } else {
+    forwardME(imgPrevLowPass, imgNextLowPass, varCandidate, iRange);
+  }
 
   pad(imgPrevKey, imgPrevKeyPadded, 40);
   pad(imgNextKey, imgNextKeyPadded, 40);
 
+  //copy mv
   for (int iter = 0; iter < 2; iter++)
     spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate, iRange, 40);
 
-  char motionVectorBuffer[100];
-  int n;
-  //copy mv
   for (int y = 0; y < height; y += iRange)
     for (int x = 0; x < width; x += iRange) {
       int iIndex=(x/iRange)+(y/iRange)*(width/iRange);
@@ -272,7 +311,9 @@ void OneStage::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, img
   for (int iter = 0; iter < 3; iter++)
     spatialSmooth(imgPrevKeyPadded, imgNextKeyPadded, varCandidate_iter2, iRange/2, 40);
 
-  MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward, varCandidate_iter2, NULL, 40, iRange/2, 0);
+  MC(imgPrevKeyPadded, imgNextKeyPadded, NULL, imgMCForward, imgMCBackward,
+     varCandidate_iter2, NULL, 40, iRange/2, 0);
+
 
   delete [] imgPrevLowPass;
   delete [] imgNextLowPass;
@@ -287,7 +328,7 @@ void OneStage::createSideInfoProcess(imgpel* imgPrevKey, imgpel* imgNextKey, img
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 //get bidirectional motion field based on candidate mvs from previous stage
-void OneStage::bidirectME(imgpel* imgPrev, imgpel* imgNext,
+void SI_MCI::bidirectME(imgpel* imgPrev, imgpel* imgNext,
                           mvinfo* varCandidate, const int iPadSize,
                           const int iRange){
   int iWidth,iHeight;
@@ -392,7 +433,7 @@ void OneStage::bidirectME(imgpel* imgPrev, imgpel* imgNext,
        require two motion vector sets (forward & backward)
 * Param :candidate, candiate2
 */
-void OneStage::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpel* imgMCf,imgpel* imgMCb, mvinfo* varCandidate, mvinfo* varCandidate2, const int iPadSize, const int iRange, const int iMode){
+void SI_MCI::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpel* imgMCf,imgpel* imgMCb, mvinfo* varCandidate, mvinfo* varCandidate2, const int iPadSize, const int iRange, const int iMode){
   int iWidth,iHeight;
   iWidth  = _codec->getFrameWidth();
   iHeight = _codec->getFrameHeight();
@@ -445,7 +486,7 @@ void OneStage::MC(imgpel* imgPrev, imgpel* imgNext, imgpel* imgDst ,imgpel* imgM
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void OneStage::getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* skipMask)
+void SI_MCI::getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* skipMask)
 {
   int iWidth,iHeight;
   iWidth  = _codec->getFrameWidth();
@@ -469,7 +510,7 @@ void OneStage::getSkippedRecFrame(imgpel* imgPrevKey,imgpel * imgWZFrame, int* s
 #if SI_REFINEMENT
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void OneStage::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* imgTmpRec,imgpel* imgSI,imgpel* imgRefined,mvinfo* varList,int iMode)
+void SI_MCI::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* imgTmpRec,imgpel* imgSI,imgpel* imgRefined,mvinfo* varList,int iMode)
 {
   int iWidth,iHeight;
   iWidth           = _codec->getFrameWidth();
@@ -575,7 +616,7 @@ void OneStage::getRefinedSideInfoProcess(imgpel* imgPrevBuffer,imgpel* imgTmpRec
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-void OneStage::getRefinedSideInfo(imgpel *imgPrevKey,imgpel *imgNextKey,imgpel *imgCurrFrame,imgpel* imgTmpRec,imgpel *imgRefined,int iMode)
+void SI_MCI::getRefinedSideInfo(imgpel *imgPrevKey,imgpel *imgNextKey,imgpel *imgCurrFrame,imgpel* imgTmpRec,imgpel *imgRefined,int iMode)
 {
   int iWidth,iHeight;
   iWidth           = _codec->getFrameWidth();

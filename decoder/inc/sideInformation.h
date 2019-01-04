@@ -41,11 +41,11 @@ protected:
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-class TwoStage : public SideInformation
+class SI_MC : public SideInformation
 {
 public:
-  TwoStage(Codec* codec, FILE* file, int srcHeight, int srcWidth);
-  ~TwoStage();
+  SI_MC(Codec* codec, FILE* file, int srcHeight, int srcWidth);
+  ~SI_MC();
 
   void createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
                       int prevFrameno, int nextFrameNo, int currFrameNo);
@@ -81,11 +81,12 @@ protected:
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-class OneStage : public SideInformation
+class SI_MCI : public SideInformation
 {
 public:
-  OneStage(Codec* codec, CorrModel* model);
-  ~OneStage();
+  SI_MCI(Codec* codec, CorrModel* model, FILE* mvs = 0);
+
+  ~SI_MCI();
 
 # if SI_REFINEMENT
   void getRefinedSideInfo(imgpel *imgPrevKey,imgpel *imgNextKey,
@@ -97,6 +98,7 @@ public:
                       imgpel* imgCurrFrame, int a = 0 ,int b = 0, int c = 0);
 
 protected:
+  void readMVFromFile(mvinfo* varCand);
   void forwardME(imgpel* prev, imgpel* curr, mvinfo* candidate,const int range);
   void bidirectME(imgpel* prev, imgpel* next, mvinfo* candidate,
                   const int iPadSize, const int range);
@@ -120,6 +122,8 @@ protected:
 
 protected:
   CorrModel*  _model;
+  FILE*       _mvFile;
+  int         _nMV;
   mvinfo*     _varList0;
   mvinfo*     _varList1;
 

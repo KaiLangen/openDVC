@@ -8,7 +8,7 @@
 #include "sideInformation.h"
 
 using namespace std;
-TwoStage::TwoStage(Codec* codec, FILE* file, int srcHeight, int srcWidth) 
+SI_MC::SI_MC(Codec* codec, FILE* file, int srcHeight, int srcWidth) 
 : SideInformation(codec)
 {
   // src dimensions
@@ -38,7 +38,7 @@ TwoStage::TwoStage(Codec* codec, FILE* file, int srcHeight, int srcWidth)
   _currFrame =  new imgpel[_trgSize];
 }
 
-TwoStage::~TwoStage()
+SI_MC::~SI_MC()
 {
   fclose(_file);
 
@@ -55,7 +55,7 @@ TwoStage::~TwoStage()
 }
 
 /* Needs to be changed from original version*/
-void TwoStage::createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
+void SI_MC::createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
                               int prevFrameNo, int nextFrameNo, int currFrameNo)
 {
   int index, pos, param, n;
@@ -67,7 +67,6 @@ void TwoStage::createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
   fread(_currBuffer, _srcSize, 1, _file);
   fseek(_file, _srcSize * nextFrameNo, SEEK_SET);
   fread(_nextBuffer, _srcSize, 1, _file);
-
 
   if (_srcSize < _trgSize){
     // Src < Trg: up-size src then motion search 
@@ -88,6 +87,7 @@ void TwoStage::createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
       MC(prevTrg, nextTrg, currTrg, 1);
   }
 }
+
 /*
     FILE* fout = fopen("output", "wb");
     fwrite(prevTrg, _trgSize, 1, fout);
@@ -99,7 +99,7 @@ void TwoStage::createSideInfo(imgpel* prevTrg, imgpel* nextTrg, imgpel* currTrg,
     fclose(fout);
 */
 
-void TwoStage::ME(imgpel* prevFrame, imgpel* nextFrame, imgpel* currFrame,
+void SI_MC::ME(imgpel* prevFrame, imgpel* nextFrame, imgpel* currFrame,
                   int width, int height)
 {
   mvinfo mv1, mv2;
@@ -131,7 +131,7 @@ void TwoStage::ME(imgpel* prevFrame, imgpel* nextFrame, imgpel* currFrame,
   }
 }
 
-void TwoStage::MC(imgpel* prev, imgpel* next, imgpel* curr, int factor)
+void SI_MC::MC(imgpel* prev, imgpel* next, imgpel* curr, int factor)
 {
   imgpel* ref;
   int cX, cY, mvX, mvY, size, width, numMV;

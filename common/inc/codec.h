@@ -17,6 +17,7 @@ public:
   int     getQp()              { return _qp; };
   int     getKeyQp()           { return _keyQp; };
   int     getNumChnCodeBands() { return _numChnCodeBands; };
+  char    getChannel()         { return _channel; };
 
   double* getAverage()         { return _average; };
   double* getAlpha()           { return _alpha; };
@@ -43,6 +44,7 @@ protected:
   const static int  HuffmanCodeLength[4][3][16];
 
   int               _quantStep[4][4];
+  char              _channel;
 
   int               _frameWidth;
   int               _frameHeight;

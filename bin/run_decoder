@@ -1,19 +1,21 @@
 #!/bin/bash
 
 # variables
-rec=rec4.yuv
 dir=$1
 orig=$2
-nframes=200
+gop=$3
+echo $gop
+rec=rec$gop.yuv
+nframes=20
 
 cp $dir/stats.dat .
 
 # exe [bit-stream file] [key file] [original file] [channel] [SI method] [optional: helper file]
 # SI METHODS:
-# 1 - separate
-# 2 - luma first
-# 3 - chroma first
-#./deDVC $dir/wz_y.bin $dir/$rec $dir/$orig y 1
-./deDVC $dir/wz_u.bin $dir/$rec $dir/$orig u 2 $dir/wz_y
-./deDVC $dir/wz_v.bin $dir/$rec $dir/$orig v 2 $dir/wz_y
+# 1 - same
+# 2 - recalculate and MC
+# 3 - recalculate and MCI
+./deDVC $dir/wz_y.bin $dir/$rec $dir/$orig y 1 $dir/mvs.csv
+./deDVC $dir/wz_u.bin $dir/$rec $dir/$orig u 1 $dir/mvs.csv
+./deDVC $dir/wz_v.bin $dir/$rec $dir/$orig v 1 $dir/mvs.csv
 ./mux $dir/wz_y $dir/wz_u $dir/wz_v $dir/wz.yuv $nframes

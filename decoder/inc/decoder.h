@@ -52,7 +52,6 @@ private:
 
   FrameBuffer*      _fb;
 
-  char              _channel;
   SIMethod          _SIMethod;
 
   Transform*        _trans;

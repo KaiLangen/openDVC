@@ -4,10 +4,10 @@
 dir=$1
 orig=$2
 keyQP=$3
-frames=200
+frames=$4
 width=352
 height=288
-gopLevel=2
+gopLevel=1
 gop=$((1<<gopLevel))
 rec=rec$gop.yuv
 echo $gop
@@ -30,6 +30,6 @@ cd ..;
 echo "Done encoding key frames";
 
 # encode wz streams
-#./enDVC $wzQP $keyQP $frames $gopLevel y $dir/$orig $dir/wz_y.bin $dir/$rec
+./enDVC $wzQP $keyQP $frames $gopLevel y $dir/$orig $dir/wz_y.bin $dir/$rec
 ./enDVC 0 $keyQP $frames $gopLevel u $dir/$orig $dir/wz_u.bin $dir/$rec
 ./enDVC 0 $keyQP $frames $gopLevel v $dir/$orig $dir/wz_v.bin $dir/$rec
