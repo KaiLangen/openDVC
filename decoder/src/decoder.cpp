@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <cassert>
 #include <cstring>
 
 #include "decoder.h"
@@ -111,7 +112,7 @@ void Decoder::decodeWzHeader()
   _frameHeight  = _bs->read(8) * 16;
   _qp           = _bs->read(8);
   _numFrames    = _bs->read(16);
-  _gopLevel     = _bs->read(2);
+  _gopLevel     = _bs->read(3);
 
   cout << "--------------------------------------------------" << endl;
   cout << "WZ frame parameters" << endl;
@@ -162,23 +163,26 @@ void Decoder::decodeWZframe()
   FILE* mvFilePtr = _files->getFile("mv")->getFileHandle();
 
   parseKeyStat("stats.dat", dKeyCodingRate, dKeyPSNR, _keyQp);
+  fseek(fKeyReadPtr, 0L, SEEK_END);
+  int keyFileSize = ftell(fKeyReadPtr);
 
   timeStart = clock();
 
   // Main loop
   // ---------------------------------------------------------------------------
-  for (int keyFrameNo = 0; keyFrameNo < (_numFrames-1)/_gop; keyFrameNo++) {
+  for (int keyFrameNo = 0; keyFrameNo < _numFrames/_gop; keyFrameNo++) {
     // Read previous key frame
     fseek(fKeyReadPtr, (3*(keyFrameNo)*_frameSize)>>1, SEEK_SET);
     fread(_fb->getPrevFrame(), _frameSize, 1, fKeyReadPtr);
     fread(keyColour, _frameSize>>1, 1, fKeyReadPtr);
 
     // Read next key frame
+    assert(((3*(keyFrameNo+1)*_frameSize)>>1) < keyFileSize);
     fseek(fKeyReadPtr, (3*(keyFrameNo+1)*_frameSize)>>1, SEEK_SET);
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
-      int frameStep = _gop / ((il+1)<<1);
+      int frameStep = _gop / (1<<(il+1));
       int idx = frameStep;
 
       // Start decoding the WZ frame
@@ -207,15 +211,15 @@ void Decoder::decodeWZframe()
         // STAGE 1 - Create side information
         // ---------------------------------------------------------------------
         _si->createSideInfo(prevFrame, nextFrame, imgSI, mvFilePtr);
+        double currPSNRSI = calcPSNR(oriCurrFrame, imgSI, _frameSize);
+        cout << "PSNR SI:" << currPSNRSI << endl;
+        dPSNRSIAvg += currPSNRSI;
 
         // ---------------------------------------------------------------------
         // STAGE 2 -
         // ---------------------------------------------------------------------
         int tmp = getSyndromeData();
-
-        //cout << _numChnCodeBands << endl;
-
-        double dTotalRate = (double)tmp/1024/8;
+        double dTotalRate = (double)tmp/8000;
 
         _trans->dctTransform(imgSI, iDCT);
 
@@ -256,6 +260,7 @@ void Decoder::decodeWZframe()
           iDC = (x == 0 && y == 0) ? 0 : 1;
 
           _si->getRefinedSideInfo(prevFrame, nextFrame, imgSI, currFrame, imgRefinedSI, iDC);
+          //cout << "PSNR Refined SI: " << currPSNRSI << endl;
 
           memcpy(imgSI, imgRefinedSI, _frameSize);
 
@@ -315,6 +320,7 @@ void Decoder::decodeWZframe()
           _trans->quantization(iDCT, iDCTQ);
 #   endif
           iOffset += QuantMatrix[_qp][y][x];
+          cout << "Curr bytes (Y frame): " << dTotalRate << " Kbytes" << endl;
         }
 
 #   if !SI_REFINEMENT
@@ -328,13 +334,14 @@ void Decoder::decodeWZframe()
 #   endif
 
 # endif // RESIDUAL_CODING
+        cout << endl << "Curr Rate (Y frame): " << dTotalRate << " Kbytes" << endl;
+        cout << "side information quality " << currPSNRSI << endl;
+        cout << "PSNR WZ: ";
+        cout << calcPSNR(oriCurrFrame, currFrame, _frameSize) << endl << endl;
 
         totalrate += dTotalRate;
         cout << endl;
         //cout << "total bits (Y/frame): " << dTotalRate << " Kbytes" << endl;
-
-        //cout << "side information quality" << endl;
-        dPSNRSIAvg += calcPSNR(oriCurrFrame, imgSI, _frameSize);
 
         //cout << "wyner-ziv frame quality" << endl;
         dPSNRAvg += calcPSNR(oriCurrFrame, currFrame, _frameSize);
@@ -370,7 +377,7 @@ void Decoder::decodeWZframe()
   float framerate = 30.0;
   dPSNRAvg   /= iDecodeWZFrames;
   dPSNRSIAvg /= iDecodeWZFrames;
-  cout<<"Total Bytes         :   "<<totalrate<<endl;
+  cout<<"Total KBytes        :   "<<totalrate<<endl;
   cout<<"WZ Avg Rate  (kbps) :   "<<totalrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0<<endl;
   cout<<"Key Avg Rate (kbps) :   "<<dKeyCodingRate*framerate*(iNumGOP)/(double)iTotalFrames<<endl;
   cout<<"Avg Rate (Key+WZ)   :   "<<totalrate/double(iDecodeWZFrames)*framerate*(iDecodeWZFrames)/(double)iTotalFrames*8.0+dKeyCodingRate*framerate*(iNumGOP)/(double)iTotalFrames<<endl;
@@ -436,7 +443,7 @@ void Decoder::parseKeyStat(const char* filename, double &rate, double &psnr, int
   }
 
   if (count)
-    rate = totalRate/(1024*count);
+    rate = totalRate/(1000*count);
   else
     rate = 0;
 }
@@ -804,7 +811,7 @@ double Decoder::decodeLDPC(int* iQuantDCT, int* iDCT, int* iDecoded, int x, int 
   delete [] dLDPCDecoded;
   delete [] dSource;
 
-  return (dTotalRate*_bitPlaneLength/8/1024);
+  return (dTotalRate*_bitPlaneLength/8/1000);
 }
 
 // -----------------------------------------------------------------------------

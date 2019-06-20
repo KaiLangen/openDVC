@@ -116,7 +116,7 @@ void Encoder::encodeKeyFrame()
   cmd << "./lencod.exe -d encoder_intra_main.cfg ";
   cmd << "-p InputFile= \"../../bin/" << srcFileName << "\" ";
   cmd << "-p ReconFile=" << "\"../../bin/" << keyFileName << "\" ";
-  cmd << "-p FramesToBeEncoded=" << ((_numFrames + _gop/2)/_gop) << " ";
+  cmd << "-p FramesToBeEncoded=" << (_numFrames/_gop) + 1 << " ";
   cmd << "-p QPISlice=" << _keyQp << " ";
   cmd << "-p FrameSkip=" << _gop-1 << " ";
   cmd << "-p SourceWidth=" << _frameWidth << " ";
@@ -139,7 +139,7 @@ void Encoder::encodeWzHeader()
   _bs->write(_frameHeight/16, 8);
   _bs->write(_qp, 8);
   _bs->write(_numFrames, 16);
-  _bs->write(_gopLevel, 2);
+  _bs->write(_gopLevel, 3);
 }
 
 // -----------------------------------------------------------------------------
@@ -177,7 +177,7 @@ void Encoder::encodeWzFrame()
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
-      int frameStep = _gop / ((il+1)<<1);
+      int frameStep = _gop / (1<<(il+1));
       int idx = frameStep;
 
       // Start encoding the WZ frame

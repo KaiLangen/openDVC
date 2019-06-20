@@ -28,6 +28,8 @@ bin/enDVC
 bin/colour
 bin/mv.csv
 bin/recoloured.yuv
+bin/run_encoder_cif
+bin/run_decoder_cif
 
 # extra test files akiyo, coastguard, and football
 bin/foreman*

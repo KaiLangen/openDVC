@@ -4,13 +4,11 @@
 
 ENC_EXE    := enDVC
 DEC_EXE    := deDVC
-COL_EXE		 := colour
 
 OUT_DIR    := bin
 
 ENC_TARGET := $(OUT_DIR)/$(ENC_EXE)
 DEC_TARGET := $(OUT_DIR)/$(DEC_EXE)
-COL_TARGET := $(OUT_DIR)/$(COL_EXE)
 
 find_objs   = $(subst src/,obj/, \
               $(subst .cpp,.o, \
@@ -19,7 +17,6 @@ find_objs   = $(subst src/,obj/, \
 COM_OBJS   := $(call find_objs,common)
 ENC_OBJS   := $(call find_objs,encoder)
 DEC_OBJS   := $(call find_objs,decoder)
-COL_OBJS   := $(call find_objs,colourizer)
 
 # Flags
 CXXFLAGS   := -Wall -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-variable
@@ -45,7 +42,7 @@ ifneq "$(SUB_MAKE)" "yes"
 .DEFAULT_GOAL := default
 
 .PHONY: default
-default: encoder decoder colourizer # bin
+default: encoder decoder bin
 	@echo ""
 
 .PHONY: bin
@@ -76,25 +73,16 @@ decoder: common
 	@$(CXX) $(DEC_OBJS) -o $(DEC_TARGET)
 	@echo "  LD   $(DEC_EXE)"
 
-.PHONY: colourizer
-colourizer: common
-	@echo ""
-	@echo "Building directory colourizer"
-	@$(MAKE) --no-print-directory -s -C colourizer
-	@$(CXX) $(COL_OBJS) -o $(COL_TARGET)
-	@echo "  LD   $(COL_EXE)"
 
 .PHONY: clean
 clean:
-	@$(RM) $(ENC_TARGET) $(DEC_TARGET) $(COL_TARGET)
+	@$(RM) $(ENC_TARGET) $(DEC_TARGET)
 	@echo "Cleaning directory common"
 	@$(MAKE) --no-print-directory -s -C common clean
 	@echo "Cleaning directory encoder"
 	@$(MAKE) --no-print-directory -s -C encoder clean
 	@echo "Cleaning directory decoder"
 	@$(MAKE) --no-print-directory -s -C decoder clean
-	@echo "Cleaning directory colourizer"
-	@$(MAKE) --no-print-directory -s -C colourizer clean
 
 .PHONY: clean_all
 clean_all: clean
