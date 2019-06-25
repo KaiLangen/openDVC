@@ -212,7 +212,7 @@ void Decoder::decodeWZframe()
         // ---------------------------------------------------------------------
         _si->createSideInfo(prevFrame, nextFrame, imgSI, mvFilePtr);
         double currPSNRSI = calcPSNR(oriCurrFrame, imgSI, _frameSize);
-        cout << "PSNR SI:" << currPSNRSI << endl;
+        cout << "PSNR SI: " << currPSNRSI << endl;
         dPSNRSIAvg += currPSNRSI;
 
         // ---------------------------------------------------------------------
