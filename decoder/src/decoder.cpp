@@ -131,7 +131,7 @@ void Decoder::decodeWzHeader()
   _frameHeight  = _bs->read(8) * 16;
   _qp           = _bs->read(8);
   _numFrames    = _bs->read(16);
-  _gopLevel     = _bs->read(2);
+  _gopLevel     = _bs->read(3);
 
   cout << "--------------------------------------------------" << endl;
   cout << "WZ frame parameters" << endl;
@@ -205,7 +205,7 @@ void Decoder::decodeWZframe()
     fread(_fb->getNextFrame(), _frameSize, 1, fKeyReadPtr);
 
     for (int il = 0; il < _gopLevel; il++) {
-      int frameStep = _gop / ((il+1)<<1);
+      int frameStep = _gop / (1<<(il+1));
       int idx = frameStep;
       int prevNo = keyFrameNo*_gop;
 
@@ -245,6 +245,11 @@ void Decoder::decodeWZframe()
         if (_SIMethod == SAME || _SIMethod == MCI_RE) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI);
         } else if (_SIMethod == MC_RE) {
+          _si->createSideInfo(prevFrame, nextFrame, imgSI,
+                              prevNo + prevIdx,
+                              prevNo + nextIdx,
+                              prevNo + idx);
+        } else if (_SIMethod == MC_NEW) {
           _si->createSideInfo(prevFrame, nextFrame, imgSI,
                               prevNo + prevIdx,
                               prevNo + nextIdx,
