@@ -249,11 +249,6 @@ void Decoder::decodeWZframe()
                               prevNo + prevIdx,
                               prevNo + nextIdx,
                               prevNo + idx);
-        } else if (_SIMethod == MC_NEW) {
-          _si->createSideInfo(prevFrame, nextFrame, imgSI,
-                              prevNo + prevIdx,
-                              prevNo + nextIdx,
-                              prevNo + idx);
         }
 
         if (_channel == 'u' || _channel == 'v') {
