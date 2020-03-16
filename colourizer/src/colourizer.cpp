@@ -1,11 +1,25 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <cmath>
 #include <exception>
 
 #include "colourizer.h"
 
 using namespace std;
+
+double calcPSNR(unsigned char* img1,unsigned char* img2,int length)
+{
+  float PSNR;
+  float MSE=0;
+
+  for(int i=0;i<length;i++)
+    {
+      MSE+=pow(float(img1[i]-img2[i]),float(2.0))/length;
+    }
+  PSNR=10*log10(255*255/MSE);
+  return PSNR;
+}
 
 Colourizer::Colourizer(map<string, string> configMap)
 {
@@ -25,18 +39,20 @@ Colourizer::Colourizer(map<string, string> configMap)
   _gopLevel = atoi(configMap["GopLevel"].c_str());
   _gop = 1 << _gopLevel;
   _nframes = atoi(configMap["FramesToBeEncoded"].c_str());
-  _files->addFile("wz", configMap["WZFile"])->openFile("rb");
-  if (!_files->getFile("wz")->getFileHandle()) {
-    cerr << "No such file: " << configMap["WZFile"] << endl;
-    throw invalid_argument("Invalid WZ file");
+
+  _files->addFile("original", configMap["InputFile"])->openFile("rb");
+  if (!_files->getFile("original")->getFileHandle()) {
+    cerr << "No such file: " << configMap["InputFile"] << endl;
+    throw invalid_argument("Invalid input video file");
   }
+
   _files->addFile("key", configMap["KeyFile"])->openFile("rb");
   if (!_files->getFile("key")->getFileHandle()) {
     cerr << "No such file: " << configMap["KeyFile"] << endl;
     throw invalid_argument("Invalid Keyframe file");
   }
-  _files->addFile("out", "recoloured.yuv")->openFile("wb");
 
+  _files->addFile("out", "recoloured.yuv")->openFile("wb");
   _grayFrameSize = _width * _height;
   _yuvFrameSize = 3*(_grayFrameSize)>>1;
 }
@@ -44,79 +60,63 @@ Colourizer::Colourizer(map<string, string> configMap)
 
 void Colourizer::colourize()
 {
-  int frameStep, idx, wzFrameNo, prevIdx, nextIdx;
+  int frameStep, idx, frameNo, prevIdx;
+  double dPSNRY = 0;
+  double dPSNRU = 0;
+  double dPSNRV = 0;
+  double dPSNRAvg = 0;
   FILE* fWritePtr   = _files->getFile("out")->getFileHandle();
-  FILE* fWZReadPtr  = _files->getFile("wz")->getFileHandle();
   FILE* fKeyReadPtr = _files->getFile("key")->getFileHandle();
-  imgpel* tmp_ptr, *prevFrame, *currFrame, *nextFrame;
+  FILE* fOrigReadPtr = _files->getFile("original")->getFileHandle();
+  imgpel* tmp_ptr, *prevFrame, *currFrame;
   imgpel* prevKeyFrame = new imgpel[_yuvFrameSize];
-  imgpel* nextKeyFrame = new imgpel[_yuvFrameSize];
+  imgpel* origFrame = new imgpel[_yuvFrameSize];
   imgpel** recFrames = new imgpel*[_gop];
 
   for (int i = 0; i < _gop-1; i++)
     recFrames[i] = new imgpel[_yuvFrameSize];
 
-  // Read first key frame
-  fread(prevKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
   for (int keyFrameNo = 0; keyFrameNo < (_nframes-1)/_gop; keyFrameNo++) {
-
-    // read in the next key frame (this also moves the file ptr)
-    fread(nextKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
-
     // skip grayscale version of Key-frame, then write out each of the
     // grayscale frames using the chroma channels of the previous key-frame
-    fseek(fWZReadPtr, _grayFrameSize, SEEK_CUR);
-
-
-    // start with frameStep = 1/2 gop, then half it each iteration
-    for (int il = 0; il < _gopLevel; il++) {
-      frameStep = _gop / ((il+1)<<1);
-      idx = frameStep;
-
-      // Start decoding the WZ frame
-      while (idx < _gop) {
-        wzFrameNo = keyFrameNo*_gop + idx;
-				cout << "Colouring frame " << wzFrameNo << " (Wyner-Ziv frame)" << endl;
-
-        // Setup frame pointers within the GOP
-        prevIdx = idx - frameStep;
-        nextIdx = idx + frameStep;
-
-        currFrame = recFrames[idx-1];
-        prevFrame = (prevIdx == 0)    ? prevKeyFrame :
-                                        recFrames[prevIdx-1];
-        nextFrame = (nextIdx == _gop) ? nextKeyFrame :
-                                        recFrames[nextIdx-1];
-				
-				fseek(fWZReadPtr, wzFrameNo*_grayFrameSize, SEEK_SET);
-				fread(currFrame, _grayFrameSize, 1, fWZReadPtr);
-				addColour(prevFrame, nextFrame, currFrame);
-
-        idx += 2*frameStep;
-      }
-    }
-
-    // ---------------------------------------------------------------------
-    // Output decoded frames of the whole GOP
-    // ---------------------------------------------------------------------
-
-    // write out prevFrame to the output file
+    fseek(fKeyReadPtr, keyFrameNo * _gop * _yuvFrameSize, SEEK_SET);
+		fread(origFrame, _yuvFrameSize, 1, fOrigReadPtr);
+    fread(prevKeyFrame, _yuvFrameSize, 1, fKeyReadPtr);
+    dPSNRY = calcPSNR(origFrame, prevKeyFrame, _grayFrameSize);
+    dPSNRU = calcPSNR(origFrame+_grayFrameSize, prevKeyFrame+_grayFrameSize, _grayFrameSize>>2);
+    dPSNRV = calcPSNR(origFrame+5*(_grayFrameSize>>2),
+                      prevKeyFrame+5*(_grayFrameSize>>2),
+                      _grayFrameSize>>2);
     fwrite(prevKeyFrame, _yuvFrameSize, 1, fWritePtr);
 
-    for (int i = 0; i < _gop-1; i++)
-      fwrite(recFrames[i], _yuvFrameSize, 1, fWritePtr);
+    for (int idx = 0; idx < _gop-1; idx++) {
+      frameNo = keyFrameNo * _gop + idx + 1;
+			cout << "Decoding frame " << frameNo << " (Wyner-Ziv frame)" << endl;
 
-    // swap prev and next key frame pointers;
-    // nextKeyFrame will be overwritten in the next step
-    tmp_ptr = prevKeyFrame;
-    prevKeyFrame = nextKeyFrame;
-    nextKeyFrame = tmp_ptr;
+      // Setup frame pointers within the GOP
+      prevIdx = idx - 1;
+      currFrame = recFrames[idx];
+      prevFrame = (prevIdx < 0)    ? prevKeyFrame :
+                                     recFrames[prevIdx];
+      prevFrame = prevKeyFrame;                         
+	  	fseek(fKeyReadPtr, frameNo*_yuvFrameSize, SEEK_SET);
+			fread(currFrame, _grayFrameSize, 1, fKeyReadPtr);
+			fread(origFrame, _yuvFrameSize, 1, fOrigReadPtr);
+			addColour(prevFrame, currFrame);
+      dPSNRY = calcPSNR(origFrame, currFrame, _grayFrameSize);
+      dPSNRU = calcPSNR(origFrame+_grayFrameSize, currFrame+_grayFrameSize, _grayFrameSize>>2);
+      dPSNRV = calcPSNR(origFrame+5*(_grayFrameSize>>2),
+                        currFrame+5*(_grayFrameSize>>2),
+                        _grayFrameSize>>2);
+      dPSNRAvg = (6*dPSNRY + dPSNRU + dPSNRV) / 8;
+      cout << "PSNR Recoloured Chroma (U): " << dPSNRU << endl;
+      cout << "PSNR Recoloured Chroma (V): " << dPSNRV << endl;
+      cout << "PSNR Luma: " << dPSNRY << endl;
+      cout << "PSNR Frame Average: " << dPSNRAvg << endl;
+      fwrite(currFrame, _yuvFrameSize, 1, fWritePtr);
+    }
   }
-  // write out the last key frame
-  fread(currFrame, _yuvFrameSize, 1, fKeyReadPtr);
-  fwrite(currFrame, _yuvFrameSize, 1, fWritePtr);
   delete [] prevKeyFrame;
-  delete [] nextKeyFrame;
   for (int i = 0; i < _gop-1; i++)
     delete [] recFrames[i];
   delete [] recFrames;
@@ -161,7 +161,7 @@ void Colourizer::MC(imgpel* prevKeyFrame, imgpel* currFrame)
  * Param: prevKeyFrame
  * Return: currFrame
  */
-void Colourizer::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame)
+void Colourizer::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   memcpy(currFrame + _grayFrameSize,
          prevKeyFrame + _grayFrameSize,
@@ -195,4 +195,3 @@ readConfig(string filename)
     throw invalid_argument("Invalid config file");
   }
 }
-

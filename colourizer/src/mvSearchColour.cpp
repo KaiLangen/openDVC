@@ -7,10 +7,26 @@
 
 using namespace std;
 
+double calcMAD(imgpel* blk1, imgpel* blk2, int width, int blocksize)
+{
+  double mad = 0;
+  for(int y=0;y<blocksize;y++)
+  {
+    for(int x=0;x<blocksize;x++)
+    {
+      imgpel pel1 = blk1[x+y*width];
+      imgpel pel2 = blk2[x+y*width];
+      mad+=abs(pel1-pel2);
+    }
+  }
+  return mad / (blocksize * blocksize);
+}
+
 MvSearchColour::MvSearchColour(map<string, string> configMap)
   : Colourizer(configMap)
 {
   _iRange = atoi(configMap["BlockSize"].c_str());
+  _thresh = atoi(configMap["threshold"].c_str());
   _nMV    = _width * _height / (_iRange*_iRange);
   _mvs    = new mvinfo[_nMV];
   _param  = atoi(configMap["Param"].c_str());
@@ -26,7 +42,7 @@ MvSearchColour::MvSearchColour(map<string, string> configMap)
  * Param: None
  * Return: None
  */
-void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame)
+void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* currFrame)
 {
   int index, pos, param, n;
   char motionVectorBuffer[100];
@@ -35,6 +51,7 @@ void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpe
   // the step size in pixels
   double L = floor(log2(_param + 1.0));
   double stepMax = pow(2.0, (L-1.0));
+  double mad;
   int step = (int)stepMax;
   for (int y = 0; y < _height; y+=_iRange) {
     for (int x = 0; x < _width; x+=_iRange) {
@@ -42,20 +59,15 @@ void MvSearchColour::addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpe
       index = x/_iRange + y*_width/(_iRange*_iRange);
       _mvs[index].iCx = x;
       _mvs[index].iCy = y;
-      TSS(currFrame, prevKeyFrame, _mvs[index],
-          step, pos, _width, _height, _iRange);
-//      cout << "Motion vector at index: " << index << endl;
-//      cout << _mvs[index].iCx << " "; 
-//      cout << _mvs[index].iCy << " "; 
-//      cout << _mvs[index].iMvx << " ";
-//      cout << _mvs[index].iMvy << " "; 
-//      cout << endl; 
-//      n = sprintf(motionVectorBuffer, "%d, %d, %d, %d\n",
-//                  _mvs[index].iCx,
-//                  _mvs[index].iCy,
-//                  _mvs[index].iMvx,
-//                  _mvs[index].iMvy);
-//      fwrite(motionVectorBuffer, n, 1, mvFilePtr);
+      mad = calcMAD(&prevKeyFrame[pos], &currFrame[pos], _width, _iRange);
+      if (mad < _thresh) {
+        _mvs[index].iMvx = 0;
+        _mvs[index].iMvy = 0;
+      }
+      else {
+        TSS(currFrame, prevKeyFrame, _mvs[index],
+            step, pos, _width, _height, _iRange);
+      }
     }
   }
   MC(prevKeyFrame, currFrame);

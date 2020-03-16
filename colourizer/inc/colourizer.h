@@ -28,7 +28,7 @@ public:
 
   int getWidth() {return _width;}
   int getHeight() {return _height;}
-  virtual void addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame);
+  virtual void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
   virtual void colourize();
 
 protected:
@@ -68,10 +68,11 @@ public:
 
   ~MvSearchColour() {delete [] _mvs;}
 
-  void addColour(imgpel* prevKeyFrame, imgpel* nextKeyFrame, imgpel* currFrame);
+  void addColour(imgpel* prevKeyFrame, imgpel* currFrame);
 
 private:
   int _param;
+  int _thresh;
 };
 
 
